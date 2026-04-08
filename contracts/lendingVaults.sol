@@ -4,11 +4,16 @@
 pragma solidity 0.8.6;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingManager.sol";
 import "./interfaces/iDecimals.sol";
 
-contract lendingVaults  {
+/// @custom:oz-upgrades-unsafe-allow constructor
+contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
     address public lendingManager;
 
     address public setter;
@@ -17,8 +22,33 @@ contract lendingVaults  {
 
     using SafeERC20 for IERC20;
 
-    constructor() {
-        setter = msg.sender;
+    /// @dev Storage gap for future upgrades
+    uint256[50] private __gap;
+
+    /// @dev Disable initializer on implementation contract
+    constructor() initializer {}
+
+    /// @notice Replaces constructor for proxy deployment
+    function initialize(address _setter) public initializer {
+        __ReentrancyGuard_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+        setter = _setter;
+    }
+
+    /// @dev Required by UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override {
+        require(msg.sender == setter, "not setter");
+    }
+
+    /// @notice Pause the contract
+    function pause() external onlySetter {
+        _pause();
+    }
+
+    /// @notice Unpause the contract
+    function unpause() external onlySetter {
+        _unpause();
     }
 
     //----------------------------modifier ----------------------------
@@ -55,8 +85,8 @@ contract lendingVaults  {
     function setRebalancer(address _rebalancer) external onlySetter{
         rebalancer = _rebalancer;
     }
-    // function assetsDepositAndLendAddrs(address token) external view returns(address[2] memory addrs)
-    function excessDisposal(address token) public onlyRebalancer(){
+
+    function excessDisposal(address token) public whenNotPaused nonReentrant onlyRebalancer(){
         address[2] memory pair = iLendingManager(lendingManager).assetsDepositAndLendAddrs(token);
         uint amountD18 = iDepositOrLoanCoin(pair[0]).totalSupply();
         uint amountL18 = iDepositOrLoanCoin(pair[1]).totalSupply();
@@ -72,11 +102,11 @@ contract lendingVaults  {
         IERC20(token).safeTransfer(msg.sender, exRaw);
     }
 
-    function vaultsERC20Approve(address ERC20Addr,uint amount) external onlyManager{
+    function vaultsERC20Approve(address ERC20Addr,uint amount) external whenNotPaused onlyManager{
         IERC20(ERC20Addr).safeIncreaseAllowance(lendingManager,amount);
     }
 
-    function transferNativeToken(address _to) external onlySetter{
+    function transferNativeToken(address _to) external nonReentrant onlySetter{
         if(address(this).balance>0){
             address payable receiver = payable(_to); // Set receiver
             (bool success, ) = receiver.call{value:address(this).balance}("");

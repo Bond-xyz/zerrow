@@ -1,0 +1,23 @@
+{
+  "name": "zerrow-protocol",
+  "version": "1.0.0",
+  "description": "Zerrow Lending Protocol",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:upgrade": "hardhat test test/upgrade-tests.js"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "4.2.0",
+    "@openzeppelin/contracts-upgradeable": "4.2.0"
+  },
+  "devDependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@nomiclabs/hardhat-waffle": "^2.0.6",
+    "@openzeppelin/hardhat-upgrades": "^1.28.0",
+    "chai": "^4.3.10",
+    "ethereum-waffle": "^3.4.4",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.22.2"
+  }
+}

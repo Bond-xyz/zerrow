@@ -3,7 +3,9 @@
 
 pragma solidity 0.8.6;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/iLendingManager.sol";
 import "./interfaces/iwA0GI.sol";
 import "./interfaces/islcoracle.sol";
@@ -11,25 +13,45 @@ import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
 import "./interfaces/iDecimals.sol";
 
-contract lendingInterface is ReentrancyGuard{
+/// @custom:oz-upgrades-unsafe-allow constructor
+contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
     address public lendingManager;
     address public A0GI;
     address public oracleAddr;
     address public lCoreAddr;
 
+    /// @notice Admin address for upgrade authorization
+    address public admin;
+
     using SafeERC20 for IERC20;
 
-    constructor(
-        address _lendingManager,
-        address _A0GI,
-        address _lCoreAddr,
-        address _oracleAddr
-    ) {
-        lendingManager = _lendingManager;
-        A0GI = _A0GI;
-        oracleAddr = _oracleAddr;
-        lCoreAddr = _lCoreAddr;
+    /// @dev Storage gap for future upgrades
+    uint256[50] private __gap;
+
+    /// @dev Disable initializer on implementation contract
+    constructor() initializer {}
+
+    /// @notice Replaces constructor for proxy deployment
+    function initialize(
+        address _manager,
+        address _a0gi,
+        address _oracle,
+        address _core
+    ) public initializer {
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        lendingManager = _manager;
+        A0GI = _a0gi;
+        oracleAddr = _oracle;
+        lCoreAddr = _core;
+        admin = msg.sender;
     }
+
+    /// @dev Required by UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override {
+        require(msg.sender == admin, "not admin");
+    }
+
     //------------------------------------------------ View ----------------------------------------------------
     function licensedAssets(
         address token
@@ -242,13 +264,11 @@ contract lendingInterface is ReentrancyGuard{
     )
         external
         view
-        returns (uint userHealthFactor, 
-                 uint[2] memory newInterest, 
+        returns (uint userHealthFactor,
+                 uint[2] memory newInterest,
                  uint _amountDeposit,
                  uint _amountLending)
     {
-        // require(assetsSerialNumber.length < 100,"Lending Manager: Too Much assets");
-        
         uint tokenPrice = iSlcOracle(oracleAddr).getPrice(token);
         uint modeLTV;
         uint8 _userMode = iLendingManager(lendingManager).userMode(user);
@@ -384,19 +404,15 @@ contract lendingInterface is ReentrancyGuard{
             user
         );
     }
-    // uint public constant ONE_YEAR = 31536000;
     function ONE_YEAR() public view returns (uint) {
         return iLendingManager(lendingManager).ONE_YEAR();
     }
-    // uint public constant UPPER_SYSTEM_LIMIT = 10000;
     function UPPER_SYSTEM_LIMIT() public view returns (uint) {
         return iLendingManager(lendingManager).UPPER_SYSTEM_LIMIT();
     }
-    // uint    public normalFloorOfHealthFactor;
     function normalFloorOfHealthFactor() public view returns (uint) {
         return iLendingManager(lendingManager).normalFloorOfHealthFactor();
     }
-    // uint    public homogeneousFloorOfHealthFactor;
     function homogeneousFloorOfHealthFactor() public view returns (uint) {
         return iLendingManager(lendingManager).homogeneousFloorOfHealthFactor();
     }
@@ -411,7 +427,6 @@ contract lendingInterface is ReentrancyGuard{
                 token
             );
     }
-    // mapping(address => uint) public riskIsolationModeLendingNetAmount; //RIM  Risk Isolation Mode
     function riskIsolationModeLendingNetAmount(
         address token
     ) public view returns (uint) {
@@ -634,7 +649,6 @@ contract lendingInterface is ReentrancyGuard{
             _userRIMAssetsAddress,
             msg.sender
         );
-
     }
     //  Assets Deposit
     function assetsDeposit(address tokenAddr, uint amount) external nonReentrant{
@@ -651,7 +665,6 @@ contract lendingInterface is ReentrancyGuard{
                 IERC20(tokenAddr).balanceOf(address(this))
             );
         }
-
     }
     // Withdrawal of deposits
     function withdrawDeposit(address tokenAddr, uint amount) external nonReentrant{
@@ -666,27 +679,7 @@ contract lendingInterface is ReentrancyGuard{
                 IERC20(tokenAddr).balanceOf(address(this))
             );
         }
-
     }
-    // function withdrawDepositMax(address tokenAddr) external nonReentrant{
-    //     address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
-    //     uint tokenBalance = IERC20(depositAndLend[0]).balanceOf(
-    //         address(msg.sender)
-    //     );
-    //     tokenBalance = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether; // Un normalize
-    //     iLendingManager(lendingManager).withdrawDeposit(
-    //         tokenAddr,
-    //         tokenBalance,
-    //         msg.sender
-    //     );
-    //     if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-    //         IERC20(tokenAddr).safeTransfer(
-    //             msg.sender,
-    //             IERC20(tokenAddr).balanceOf(address(this))
-    //         );
-    //     }
-
-    // }
     // lend Asset
     function lendAsset(address tokenAddr, uint amount) external nonReentrant{
         iLendingManager(lendingManager).lendAsset(
@@ -700,7 +693,6 @@ contract lendingInterface is ReentrancyGuard{
                 IERC20(tokenAddr).balanceOf(address(this))
             );
         }
-
     }
     // repay Loan
     function repayLoan(address tokenAddr, uint amount) external nonReentrant{
@@ -717,35 +709,7 @@ contract lendingInterface is ReentrancyGuard{
                 IERC20(tokenAddr).balanceOf(address(this))
             );
         }
-
     }
-    // function repayLoanMax(address tokenAddr) external nonReentrant{
-    //     address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
-    //     uint tokenBalance = IERC20(depositAndLend[1]).balanceOf(
-    //         address(msg.sender)
-    //     );
-
-    //     uint tokenBackAmount = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether; // Un normalize
-    //     if(tokenBalance > tokenBackAmount * 1 ether / (10**iDecimals(tokenAddr).decimals())) {
-    //         tokenBackAmount = tokenBackAmount + 1;
-    //     }
-    //     IERC20(tokenAddr).safeTransferFrom(
-    //         msg.sender,
-    //         address(this),
-    //         tokenBackAmount
-    //     );
-    //     IERC20(tokenAddr).approve(lendingManager, tokenBackAmount);
-    //     iLendingManager(lendingManager).repayLoan(
-    //         tokenAddr,
-    //         tokenBackAmount,
-    //         msg.sender
-    //     );
-    //     uint256 remainingBalance = IERC20(tokenAddr).balanceOf(address(this));
-    //     if (remainingBalance > 0) {
-    //         IERC20(tokenAddr).safeTransfer(msg.sender,remainingBalance);
-    //     }
-
-    // }
     //-----------------------------------------Operation 2 can use 0g---------------------------------------------
     //  Assets Deposit
     function assetsDeposit2(address tokenAddr, uint amount) external payable nonReentrant{
@@ -780,11 +744,10 @@ contract lendingInterface is ReentrancyGuard{
             );
         }
         if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender); // Set receiver
+            address payable receiver = payable(msg.sender);
             (bool success, ) = receiver.call{value: address(this).balance}("");
             require(success, "Lending Interface: 0g Transfer Failed");
         }
-
     }
     // Withdrawal of deposits
     function withdrawDeposit2(address tokenAddr, uint amount) external nonReentrant{
@@ -803,18 +766,17 @@ contract lendingInterface is ReentrancyGuard{
             );
         }
         if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender); // Set receiver
+            address payable receiver = payable(msg.sender);
             (bool success, ) = receiver.call{value: address(this).balance}("");
             require(success, "Lending Interface: 0g Transfer Failed");
         }
-
     }
     function withdrawDepositMax2(address tokenAddr) external nonReentrant {
         address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
         uint tokenBalance = IERC20(depositAndLend[0]).balanceOf(
             address(msg.sender)
         );
-        tokenBalance = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether; // Un normalize
+        tokenBalance = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether;
         iLendingManager(lendingManager).withdrawDeposit(
             tokenAddr,
             tokenBalance,
@@ -830,11 +792,10 @@ contract lendingInterface is ReentrancyGuard{
             );
         }
         if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender); // Set receiver
+            address payable receiver = payable(msg.sender);
             (bool success, ) = receiver.call{value: address(this).balance}("");
             require(success, "Lending Interface: 0g Transfer Failed");
         }
-
     }
     // lend Asset
     function lendAsset2(address tokenAddr, uint amount) external nonReentrant{
@@ -852,11 +813,10 @@ contract lendingInterface is ReentrancyGuard{
             );
         }
         if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender); // Set receiver
+            address payable receiver = payable(msg.sender);
             (bool success, ) = receiver.call{value: address(this).balance}("");
             require(success, "Lending Interface: 0g Transfer Failed");
         }
-
     }
     // repay Loan
     function repayLoan2(address tokenAddr, uint amount) external payable nonReentrant{
@@ -890,19 +850,17 @@ contract lendingInterface is ReentrancyGuard{
             );
         }
         if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender); // Set receiver
+            address payable receiver = payable(msg.sender);
             (bool success, ) = receiver.call{value: address(this).balance}("");
             require(success, "Lending Interface: 0g Transfer Failed");
         }
-
     }
     function repayLoanMax2(address tokenAddr) external payable nonReentrant {
         address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
         uint tokenBalance = IERC20(depositAndLend[1]).balanceOf(
             address(msg.sender)
         );
-        // tokenBalance = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether; // Un normalize
-        uint tokenBackAmount = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether; // Un normalize
+        uint tokenBackAmount = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether;
         if(tokenBalance > tokenBackAmount * 1 ether / (10**iDecimals(tokenAddr).decimals())) {
             tokenBackAmount = tokenBackAmount + 1;
         }
@@ -936,11 +894,10 @@ contract lendingInterface is ReentrancyGuard{
             );
         }
         if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender); // Set receiver
+            address payable receiver = payable(msg.sender);
             (bool success, ) = receiver.call{value: address(this).balance}("");
             require(success, "Lending Interface: 0g Transfer Failed");
         }
-
     }
     // ======================== contract base methods =====================
     fallback() external payable {}
