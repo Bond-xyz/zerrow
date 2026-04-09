@@ -80,9 +80,11 @@ contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrade
         newsetter = address(0);
     }
     function setManager(address _manager) external onlySetter{
+        require(_manager != address(0), "Lending Vault: Manager cannot be zero");
         lendingManager = _manager;
     }
     function setRebalancer(address _rebalancer) external onlySetter{
+        require(_rebalancer != address(0), "Lending Vault: Rebalancer cannot be zero");
         rebalancer = _rebalancer;
     }
 

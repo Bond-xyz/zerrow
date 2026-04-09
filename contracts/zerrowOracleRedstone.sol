@@ -57,6 +57,7 @@ contract zerrowOracleRedstone is Initializable, UUPSUpgradeable {
     }
 
     function setTokenFeed(address token, address feed) external onlySetter {
+        require(feed != address(0), "Zerrow Oracle: Feed cannot be zero");
         tokenToFeed[token] = feed;
     }
 
@@ -66,16 +67,19 @@ contract zerrowOracleRedstone is Initializable, UUPSUpgradeable {
     ) external onlySetter {
         require(tokens.length == feeds.length, "Zerrow Oracle: Length mismatch");
         for (uint i = 0; i < tokens.length; i++) {
+            require(feeds[i] != address(0), "Zerrow Oracle: Feed cannot be zero");
             tokenToFeed[tokens[i]] = feeds[i];
         }
     }
 
     function setMaxStaleness(uint _maxStaleness) external onlySetter {
         require(_maxStaleness >= 3600, "Zerrow Oracle: Min staleness 1 hour");
+        require(_maxStaleness <= 86400, "Zerrow Oracle: Max staleness 24 hours");
         maxStaleness = _maxStaleness;
     }
 
     function setSt0gAdr(address _st0gAdr) external onlySetter {
+        require(_st0gAdr != address(0), "Zerrow Oracle: st0g cannot be zero");
         st0gAdr = _st0gAdr;
     }
 

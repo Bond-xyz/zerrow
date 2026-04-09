@@ -806,7 +806,8 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         );
         if (IERC20(A0GI).balanceOf(address(this)) > 0) {
             iwA0GI(A0GI).withdraw(IERC20(A0GI).balanceOf(address(this)));
-        } else if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
+        }
+        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
             IERC20(tokenAddr).safeTransfer(
                 msg.sender,
                 IERC20(tokenAddr).balanceOf(address(this))
