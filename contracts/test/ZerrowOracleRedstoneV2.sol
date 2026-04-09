@@ -4,14 +4,15 @@ pragma solidity 0.8.6;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-/// @notice V2 of ZerrowOracle with new state variable
+/// @notice V2 of zerrowOracleRedstone with new state variable
 /// @custom:oz-upgrades-unsafe-allow constructor
-contract ZerrowOracleV2 is Initializable, UUPSUpgradeable {
+contract ZerrowOracleRedstoneV2 is Initializable, UUPSUpgradeable {
+    // --- V1 STATE (must match zerrowOracleRedstone storage layout) ---
     address public setter;
     address newsetter;
-    address st0gAdr;
-    address public pythAddr;
-    mapping(address => bytes32) public TokenToPythId;
+    address public st0gAdr;
+    uint public maxStaleness;
+    mapping(address => address) public tokenToFeed;
 
     // --- V2 NEW STATE ---
     uint256 public priceDeviationThreshold;
@@ -20,7 +21,7 @@ contract ZerrowOracleV2 is Initializable, UUPSUpgradeable {
     uint256[49] private __gap;
 
     modifier onlySetter() {
-        require(msg.sender == setter, 'SLC Vaults: Only Manager Use');
+        require(msg.sender == setter, "Zerrow Oracle: Only Setter");
         _;
     }
 
@@ -29,6 +30,7 @@ contract ZerrowOracleV2 is Initializable, UUPSUpgradeable {
     function initialize(address _setter) public initializer {
         __UUPSUpgradeable_init();
         setter = _setter;
+        maxStaleness = 25200;
     }
 
     function _authorizeUpgrade(address) internal override {
@@ -45,7 +47,7 @@ contract ZerrowOracleV2 is Initializable, UUPSUpgradeable {
         return "v2";
     }
 
-    function TokenToPythIdSetup(address tokenAddress, bytes32 pythId) external onlySetter{
-        TokenToPythId[tokenAddress] = pythId;
+    function setTokenFeed(address token, address feed) external onlySetter {
+        tokenToFeed[token] = feed;
     }
 }
