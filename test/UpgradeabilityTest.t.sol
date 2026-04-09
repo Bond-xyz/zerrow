@@ -10,14 +10,14 @@ import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import "../contracts/lendingManager.sol";
 import "../contracts/lendingVaults.sol";
 import "../contracts/coinFactory.sol";
-import "../contracts/zerrowOracle.sol";
+import "../contracts/zerrowOracleRedstone.sol";
 import "../contracts/template/depositOrLoanCoin.sol";
 
 // V2 contracts (existing test mocks)
 import "../contracts/test/LendingManagerV2.sol";
 import "../contracts/test/LendingVaultsV2.sol";
 import "../contracts/test/CoinFactoryV2.sol";
-import "../contracts/test/ZerrowOracleV2.sol";
+import "../contracts/test/ZerrowOracleRedstoneV2.sol";
 import "../contracts/test/DepositOrLoanCoinV2.sol";
 import "../contracts/test/MockERC20.sol";
 
@@ -155,25 +155,25 @@ contract CoinFactoryProxyTest is Test {
 }
 
 contract ZerrowOracleProxyTest is Test {
-    zerrowOracle public impl;
+    zerrowOracleRedstone public impl;
     ERC1967Proxy public proxy;
-    zerrowOracle public oracle;
+    zerrowOracleRedstone public oracle;
     address public setter = address(0xA4);
 
     function setUp() public {
-        impl = new zerrowOracle();
+        impl = new zerrowOracleRedstone();
         bytes memory initData = abi.encodeWithSelector(
-            zerrowOracle.initialize.selector,
+            zerrowOracleRedstone.initialize.selector,
             setter
         );
         proxy = new ERC1967Proxy(address(impl), initData);
-        oracle = zerrowOracle(payable(address(proxy)));
+        oracle = zerrowOracleRedstone(payable(address(proxy)));
     }
 
     function test_InitializeSetsState() public {
         assertEq(oracle.setter(), setter);
-        // Default pyth address set in initialize
-        assertEq(oracle.pythAddr(), address(0x2880aB155794e7179c9eE2e38200202908C17B43));
+        // Default maxStaleness set in initialize
+        assertEq(oracle.maxStaleness(), 25200);
     }
 
     function test_DoubleInitializeReverts() public {
@@ -460,63 +460,63 @@ contract CoinFactoryUpgradeTest is Test {
 }
 
 contract ZerrowOracleUpgradeTest is Test {
-    zerrowOracle public impl;
+    zerrowOracleRedstone public impl;
     ERC1967Proxy public proxy;
-    zerrowOracle public oracle;
+    zerrowOracleRedstone public oracle;
     address public setter = address(0xA4);
     address public nonSetter = address(0xB4);
 
     function setUp() public {
-        impl = new zerrowOracle();
+        impl = new zerrowOracleRedstone();
         bytes memory initData = abi.encodeWithSelector(
-            zerrowOracle.initialize.selector,
+            zerrowOracleRedstone.initialize.selector,
             setter
         );
         proxy = new ERC1967Proxy(address(impl), initData);
-        oracle = zerrowOracle(payable(address(proxy)));
+        oracle = zerrowOracleRedstone(payable(address(proxy)));
     }
 
     function test_SetterCanUpgrade() public {
-        ZerrowOracleV2 implV2 = new ZerrowOracleV2();
+        ZerrowOracleRedstoneV2 implV2 = new ZerrowOracleRedstoneV2();
         vm.prank(setter);
         oracle.upgradeTo(address(implV2));
 
-        ZerrowOracleV2 oracleV2 = ZerrowOracleV2(address(proxy));
+        ZerrowOracleRedstoneV2 oracleV2 = ZerrowOracleRedstoneV2(address(proxy));
         assertEq(oracleV2.version(), "v2");
     }
 
     function test_NonSetterCannotUpgrade() public {
-        ZerrowOracleV2 implV2 = new ZerrowOracleV2();
+        ZerrowOracleRedstoneV2 implV2 = new ZerrowOracleRedstoneV2();
         vm.prank(nonSetter);
         vm.expectRevert("not setter");
         oracle.upgradeTo(address(implV2));
     }
 
     function test_StatePreservedAfterUpgrade() public {
-        bytes32 pythId = bytes32(uint256(0xABCD));
         address token = address(0x1234);
+        address feed = address(0x5678);
 
         vm.prank(setter);
-        oracle.TokenToPythIdSetup(token, pythId);
-        assertEq(oracle.TokenToPythId(token), pythId);
+        oracle.setTokenFeed(token, feed);
+        assertEq(oracle.tokenToFeed(token), feed);
         assertEq(oracle.setter(), setter);
 
         // Upgrade
-        ZerrowOracleV2 implV2 = new ZerrowOracleV2();
+        ZerrowOracleRedstoneV2 implV2 = new ZerrowOracleRedstoneV2();
         vm.prank(setter);
         oracle.upgradeTo(address(implV2));
 
-        ZerrowOracleV2 oracleV2 = ZerrowOracleV2(address(proxy));
+        ZerrowOracleRedstoneV2 oracleV2 = ZerrowOracleRedstoneV2(address(proxy));
         assertEq(oracleV2.setter(), setter);
-        assertEq(oracleV2.TokenToPythId(token), pythId);
+        assertEq(oracleV2.tokenToFeed(token), feed);
     }
 
     function test_V2NewFunctionalityWorks() public {
-        ZerrowOracleV2 implV2 = new ZerrowOracleV2();
+        ZerrowOracleRedstoneV2 implV2 = new ZerrowOracleRedstoneV2();
         vm.prank(setter);
         oracle.upgradeTo(address(implV2));
 
-        ZerrowOracleV2 oracleV2 = ZerrowOracleV2(address(proxy));
+        ZerrowOracleRedstoneV2 oracleV2 = ZerrowOracleRedstoneV2(address(proxy));
         assertEq(oracleV2.priceDeviationThreshold(), 0);
 
         vm.prank(setter);
@@ -945,13 +945,13 @@ contract AccessControlTest is Test {
     // ---- ZerrowOracle access control ----
 
     function test_ZerrowOracle_TwoStepSetterTransfer() public {
-        zerrowOracle impl = new zerrowOracle();
+        zerrowOracleRedstone impl = new zerrowOracleRedstone();
         bytes memory initData = abi.encodeWithSelector(
-            zerrowOracle.initialize.selector,
+            zerrowOracleRedstone.initialize.selector,
             setter
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-        zerrowOracle oracle = zerrowOracle(payable(address(proxy)));
+        zerrowOracleRedstone oracle = zerrowOracleRedstone(payable(address(proxy)));
 
         vm.prank(setter);
         oracle.transferSetter(newSetter);
@@ -962,7 +962,7 @@ contract AccessControlTest is Test {
         assertEq(oracle.setter(), newSetter);
 
         // Old setter cannot upgrade
-        ZerrowOracleV2 implV2 = new ZerrowOracleV2();
+        ZerrowOracleRedstoneV2 implV2 = new ZerrowOracleRedstoneV2();
         vm.prank(setter);
         vm.expectRevert("not setter");
         oracle.upgradeTo(address(implV2));
