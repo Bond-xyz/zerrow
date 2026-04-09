@@ -3,43 +3,42 @@
 
 pragma solidity 0.8.6;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20NoTransfer.sol";
+import "./ERC20NoTransferUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "../interfaces/iLendingManager.sol";
 import "../interfaces/iRewardMini.sol";
 
-contract depositOrLoanCoin is ERC20NoTransfer {
-    address public immutable manager;
+/// @notice depositOrLoanCoin is deployed behind a BeaconProxy.
+/// Upgrade logic lives in the UpgradeableBeacon, not in this contract.
+/// @dev `manager` was previously `immutable`. It is now a regular storage variable.
+/// This means a new storage slot is used at position after `setter`. When migrating
+/// from the old non-upgradeable layout, this slot was unused (it was not in storage
+/// because immutable variables are stored in bytecode). For fresh deployments via
+/// BeaconProxy + initialize(), storage layout is correct.
+contract depositOrLoanCoin is Initializable, ERC20NoTransferUpgradeable, ReentrancyGuardUpgradeable {
+    /// @dev Changed from `immutable` to regular storage for proxy compatibility.
+    /// IMPORTANT: In the original contract, `manager` was immutable (stored in bytecode,
+    /// not in storage). Converting to upgradeable means this now occupies a storage slot.
+    /// For fresh BeaconProxy deployments this is fine. For migration of existing data,
+    /// this slot was previously empty and will be set via initialize().
+    address public manager;
     address public setter;
     address newsetter;
     address public OCoin;
     address public rewardContract;
-    
+
     uint public depositOrLoan;
     uint public OQCtotalSupply; //OriginalQuantityCoin
-    
+
+    bool public mintlock;//0g added switch
+
     mapping(address=>uint) public userOQCAmount;
 
-    constructor(uint _depositOrLoan,
-                address _OCoin, 
-                address _manager,
-                address _rewardContract,
-                string memory _name,
-                string memory _symbol) ERC20NoTransfer(_name, _symbol){
-        setter = msg.sender;
-        OCoin = _OCoin;
-        manager = _manager;
-        depositOrLoan = _depositOrLoan;
-        rewardContract = _rewardContract;
-    }
+    /// @dev Storage gap for future upgrades
+    uint256[50] private __gap;
 
     //----------------------------modifier ----------------------------
-    uint private unlocked = 1;
-    modifier lock() {
-        require(unlocked == 1, 'Deposit Or Loan Coin: LOCKED');
-        unlocked = 0;
-        _;
-        unlocked = 1;
-    }
     modifier onlyManager() {
         require(msg.sender == manager, 'Deposit Or Loan Coin: Only Manager Use');
         _;
@@ -48,16 +47,44 @@ contract depositOrLoanCoin is ERC20NoTransfer {
         require(msg.sender == setter, 'Deposit Or Loan Coin: Only setter Use');
         _;
     }
+    modifier mintLocker() {
+        require(mintlock == false, 'Deposit Or Loan Coin: Mint function locked');
+        _;
+    }
 
     //----------------------------- event -----------------------------
     event Mint(address indexed token,address mintAddress, uint amount);
     event Burn(address indexed token,address burnAddress, uint amount);
     event RecordUpdate(bool ToF, address _userAccount,uint _value);
+
+    /// @dev Disable initializer on implementation contract
+    constructor() initializer {}
+
+    /// @notice Replaces constructor for proxy deployment (called by BeaconProxy)
+    function initialize(
+        string memory _name,
+        string memory _symbol,
+        address _setter,
+        address _OCoin,
+        address _manager,
+        uint _depositOrLoan,
+        address _rewardContract
+    ) public initializer {
+        __ERC20NoTransfer_init(_name, _symbol);
+        __ReentrancyGuard_init();
+        setter = _setter;
+        OCoin = _OCoin;
+        manager = _manager;
+        depositOrLoan = _depositOrLoan;
+        rewardContract = _rewardContract;
+        mintlock = false;
+    }
+
     //-------------------------- sys function --------------------------
 
-    // function managerSetup(address _manager) external onlySetter{
-    //     manager = _manager;
-    // }
+    function mintLockerSetup(bool tOF) external onlySetter{
+        mintlock = tOF;
+    }
     function rewardContractSetup(address _rewardContract) external onlySetter{
         rewardContract = _rewardContract;
     }
@@ -78,7 +105,7 @@ contract depositOrLoanCoin is ERC20NoTransfer {
     /**
      * @dev mint
      */
-    function mintCoin(address _account,uint256 _value) public onlyManager lock{
+    function mintCoin(address _account,uint256 _value) public onlyManager mintLocker nonReentrant{
         uint addTokens;
         require(_value > 0,"Deposit Or Loan Coin: Input value MUST > 0");
         require(_account != address(0),"Deposit Or Loan Coin: Cannot mint to zero address");
@@ -102,7 +129,7 @@ contract depositOrLoanCoin is ERC20NoTransfer {
     /**
      * @dev burn
      */
-    function burnCoin(address _account,uint256 _value) public onlyManager lock{
+    function burnCoin(address _account,uint256 _value) public onlyManager nonReentrant{
         uint burnTokens;
         require(_value > 0,"Deposit Or Loan Coin: Con't burn 0");
         require(_value <= balanceOf(_account),"Deposit Or Loan Coin: Must <= account balance");

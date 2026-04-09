@@ -3,15 +3,19 @@
 
 pragma solidity 0.8.6;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/iLendingManager.sol";
 import "./interfaces/iwA0GI.sol";
 import "./interfaces/islcoracle.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
 import "./interfaces/iLstGimo.sol";
+import "./interfaces/iDecimals.sol";
 
-contract lstInterface is ReentrancyGuard{
+/// @custom:oz-upgrades-unsafe-allow constructor
+contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
     address public lendingManager;
     address public A0GI;
     address public oracleAddr;
@@ -19,22 +23,40 @@ contract lstInterface is ReentrancyGuard{
     address public lstGimo;
     address public gToken;
 
+    /// @notice Admin address for upgrade authorization
+    address public admin;
+
     using SafeERC20 for IERC20;
 
-    constructor(
+    /// @dev Storage gap for future upgrades
+    uint256[50] private __gap;
+
+    /// @dev Disable initializer on implementation contract
+    constructor() initializer {}
+
+    /// @notice Replaces constructor for proxy deployment
+    function initialize(
         address _lendingManager,
         address _A0GI,
         address _lCoreAddr,
         address _oracleAddr,
         address _lstGimo,
         address _gToken
-    ) {
+    ) public initializer {
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
         lendingManager = _lendingManager;
         A0GI = _A0GI;
         oracleAddr = _oracleAddr;
         lCoreAddr = _lCoreAddr;
         lstGimo = _lstGimo;
         gToken = _gToken;
+        admin = msg.sender;
+    }
+
+    /// @dev Required by UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override {
+        require(msg.sender == admin, "not admin");
     }
 
     //------------------------------------------------ View ----------------------------------------------------
@@ -263,13 +285,11 @@ contract lstInterface is ReentrancyGuard{
     )
         external
         view
-        returns (uint userHealthFactor, 
-                 uint[2] memory newInterest, 
+        returns (uint userHealthFactor,
+                 uint[2] memory newInterest,
                  uint _amountDeposit,
                  uint _amountLending)
     {
-        // require(assetsSerialNumber.length < 100,"Lending Manager: Too Much assets");
-        
         uint tokenPrice = iSlcOracle(oracleAddr).getPrice(token);
         uint modeLTV;
         uint8 _userMode = iLendingManager(lendingManager).userMode(user);
@@ -405,19 +425,15 @@ contract lstInterface is ReentrancyGuard{
             user
         );
     }
-    // uint public constant ONE_YEAR = 31536000;
     function ONE_YEAR() public view returns (uint) {
         return iLendingManager(lendingManager).ONE_YEAR();
     }
-    // uint public constant UPPER_SYSTEM_LIMIT = 10000;
     function UPPER_SYSTEM_LIMIT() public view returns (uint) {
         return iLendingManager(lendingManager).UPPER_SYSTEM_LIMIT();
     }
-    // uint    public normalFloorOfHealthFactor;
     function normalFloorOfHealthFactor() public view returns (uint) {
         return iLendingManager(lendingManager).normalFloorOfHealthFactor();
     }
-    // uint    public homogeneousFloorOfHealthFactor;
     function homogeneousFloorOfHealthFactor() public view returns (uint) {
         return iLendingManager(lendingManager).homogeneousFloorOfHealthFactor();
     }
@@ -432,7 +448,6 @@ contract lstInterface is ReentrancyGuard{
                 token
             );
     }
-    // mapping(address => uint) public riskIsolationModeLendingNetAmount; //RIM  Risk Isolation Mode
     function riskIsolationModeLendingNetAmount(
         address token
     ) public view returns (uint) {
@@ -644,20 +659,48 @@ contract lstInterface is ReentrancyGuard{
             totalBorrowed[i] = tempAmounts[1];
         }
     }
+    //-------------------------------token Liquidate Estimate-------------------------------------------
+    function tokenLiquidateEstimate(address user,
+                            address liquidateToken,
+                            address depositToken) public view returns(uint[2] memory maxAmounts){
+        if(viewUsersHealthFactor(user) >= 1 ether){
+            uint[2] memory zero;
+            return zero;
+        }
+        uint amountliquidate = iDepositOrLoanCoin(assetsDepositAndLendAddrs(liquidateToken)[0]).balanceOf(user);
+        uint amountDeposit = iDepositOrLoanCoin(assetsDepositAndLendAddrs(depositToken)[1]).balanceOf(user);
+        uint liquidateTokenPrice = iSlcOracle(oracleAddr).getPrice(liquidateToken);
+        uint depositTokenPrice = iSlcOracle(oracleAddr).getPrice(depositToken);
+        iLendingManager.licensedAsset memory liquidateTokenAttribute = licensedAssets(liquidateToken);
 
+        uint liquidateMaxValue = amountliquidate * liquidateTokenPrice / 1 ether;
+        uint upperSystemLimit = UPPER_SYSTEM_LIMIT();
+        uint depositMaxValue = amountDeposit * depositTokenPrice / 1 ether
+                      * upperSystemLimit / (upperSystemLimit - liquidateTokenAttribute.liquidationPenalty);
+
+        if(liquidateMaxValue < depositMaxValue){
+            maxAmounts[0] = amountliquidate;
+            maxAmounts[1] = liquidateMaxValue * (upperSystemLimit - liquidateTokenAttribute.liquidationPenalty) * 1 ether
+                                            / (upperSystemLimit * depositTokenPrice);
+        }else if(liquidateMaxValue == depositMaxValue){
+            maxAmounts[0] = amountliquidate;
+            maxAmounts[1] = amountDeposit;
+        }else{
+            maxAmounts[0] = depositMaxValue * 1 ether / liquidateTokenPrice;
+            maxAmounts[1] = amountDeposit;
+
+        }
+        maxAmounts[0] = maxAmounts[0] * (10**iDecimals(liquidateToken).decimals()) / 1 ether;
+        maxAmounts[1] = maxAmounts[1] * (10**iDecimals(depositToken).decimals()) / 1 ether;
+    }
 
     //=======================================stake for Gimo=============================================
-    // interface iLstGimo{
-    // function stake(string calldata _memo) external payable;
-    // function unstake(uint256 _lsdTokenAmount) external;
-    // function getRate() external view returns (uint256);
-    // }
-    function gimoStake(string calldata _memo) public payable{
+    function gimoStake() public payable{
         iLstGimo(lstGimo).stake{value: msg.value}("zerrow");
     }
     function gimoUnstake(uint256 _lsdTokenAmount) public{
         iLstGimo(lstGimo).unstake(_lsdTokenAmount);
-    }    
+    }
     function getRate() public view returns (uint256){
         return iLstGimo(lstGimo).getRate();
     }
@@ -670,7 +713,7 @@ contract lstInterface is ReentrancyGuard{
 
         if(stakeToken == gToken){
             iLstGimo(lstGimo).stake{value: msg.value}("zerrow");
-            
+
         }else{
             revert("Need be a Lst Token");
         }
@@ -681,7 +724,7 @@ contract lstInterface is ReentrancyGuard{
 
         if(stakeToken == gToken){
             iLstGimo(lstGimo).stake{value: msg.value}("zerrow");
-            
+
         }else{
             revert("Need be a Lst Token");
         }
@@ -691,10 +734,10 @@ contract lstInterface is ReentrancyGuard{
     }
 
     //  Assets loop Deposit, both Lst and Other high liqulity Coin
-    function looperDeposit(address tokenAddr, 
-                           address stakeToken, 
-                           uint    amount, 
-                           uint    times, 
+    function looperDeposit(address tokenAddr,
+                           address stakeToken,
+                           uint    amount,
+                           uint    times,
                            uint    percentage) external payable nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
         require(percentage <= 10000, "Percentage must be <= 10000");
@@ -743,7 +786,7 @@ contract lstInterface is ReentrancyGuard{
                 // Calculate and validate lending amount
                 uint lendAmount = (currentAmount * percentage) / 10000;
                 require(lendAmount > 0, "Lending amount too small");
-                iLendingManager(lendingManager).lendAsset( tokenAddr, amount, msg.sender );
+                iLendingManager(lendingManager).lendAsset( tokenAddr, lendAmount, msg.sender );
                 // Update for next iteration
                 currentAmount = lendAmount;
             }else{
