@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.6;
 
-import "forge-std/Test.sol";
+import "./utils/TestBase.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "../contracts/lendingManager.sol";
 import "../contracts/lendingVaults.sol";
 import "../contracts/coinFactory.sol";
+import "../contracts/lstInterface.sol";
 import "../contracts/zerrowOracleRedstone.sol";
 import "../contracts/lendingCoreAlgorithm.sol";
 import "../contracts/template/depositOrLoanCoin.sol";
@@ -71,11 +72,12 @@ contract MockAggregator {
 //  Audit Fix Verification Tests
 // ===========================================================================
 
-contract AuditFixVerification is Test {
+contract AuditFixVerification is TestBase {
     // ---- Contracts (proxied) ----
     lendingManager public manager;
     lendingVaults public vaults;
     coinFactory public factory;
+    lstInterface public lst;
     zerrowOracleRedstone public oracle;
 
     // ---- Non-proxied helpers ----
@@ -192,6 +194,25 @@ contract AuditFixVerification is Test {
         // ---- Whitelist the test contract as an interface ----
         manager.xInterfacesetting(address(this), true);
 
+        // ---- Deploy and whitelist lstInterface ----
+        {
+            lstInterface lstImpl = new lstInterface();
+            ERC1967Proxy lstProxy = new ERC1967Proxy(
+                address(lstImpl),
+                abi.encodeWithSelector(
+                    lstInterface.initialize.selector,
+                    address(manager),
+                    address(tokenA),
+                    address(coreAlgo),
+                    address(oracle),
+                    address(0xBEEF),
+                    address(tokenA)
+                )
+            );
+            lst = lstInterface(payable(address(lstProxy)));
+        }
+        manager.xInterfacesetting(address(lst), true);
+
         // ---- Register tokenA as licensed asset ----
         // maxLTV=8000 (80%), liqPenalty=500 (5%), maxLendingAmountInRIM=0,
         // bestLendingRatio=7000, reserveFactor=1000, lendingModeNum=0,
@@ -265,12 +286,9 @@ contract AuditFixVerification is Test {
     //  C-1: Liquidation Burns Correct Token Types
     // =====================================================================
 
-    /// @notice C-1 FIX VERIFICATION: Verify that liquidation burns LOAN coins
-    ///         for liquidateToken and DEPOSIT coins for depositToken.
-    ///         In the buggy code, indices [0] and [1] are swapped in tokenLiquidate,
-    ///         causing it to read deposit balance as "amountLending" and loan balance
-    ///         as "amountDeposit". The fix swaps them to the correct indices.
-    ///         This test will FAIL on unfixed code and PASS once indices are corrected.
+    /// @notice C-1 FIX VERIFICATION: Verify that liquidation repays debt,
+    ///         seizes collateral, and transfers the underlying collateral to
+    ///         the liquidator.
     function test_LiquidationBurnsCorrectTokenTypes() public {
         // --- Step 1: user1 deposits tokenA (collateral) ---
         uint256 depositAmount = 10 ether; // 10 tokenA at $2000 = $20,000 collateral
@@ -291,15 +309,19 @@ contract AuditFixVerification is Test {
         // Record balances before liquidation
         uint256 user1LoanCoinB_before = IERC20(loanCoinB).balanceOf(user1);
         uint256 user1DepositCoinA_before = IERC20(depositCoinA).balanceOf(user1);
+        uint256 liquidatorTokenA_before = tokenA.balanceOf(liquidator);
+        uint256 liquidatorDepositCoinA_before = IERC20(depositCoinA).balanceOf(liquidator);
+        uint256 vaultTokenA_before = tokenA.balanceOf(address(vaults));
 
         // Verify user1 has loan coins for tokenB and deposit coins for tokenA
         assertGt(user1LoanCoinB_before, 0, "user1 should have loan coins for tokenB");
         assertGt(user1DepositCoinA_before, 0, "user1 should have deposit coins for tokenA");
 
-        // --- Step 4: Crash tokenA price to make user1 liquidatable ---
-        // At $200: deposit value = 10 * 200 * 80% LTV = $1,600
-        // Loan value = $10,000. HF = 1600/10000 = 0.16 (liquidatable)
-        feedA.setPrice(200e8); // $200
+        // --- Step 4: Lower tokenA price to make user1 liquidatable but still
+        // allow a partial liquidation to improve health factor.
+        // At $1100: deposit value = 10 * 1100 * 80% LTV = $8,800
+        // Loan value = $10,000. HF = 0.88 (liquidatable, but recoverable)
+        feedA.setPrice(1100e8); // $1100
 
         uint256 hf = manager.viewUsersHealthFactor(user1);
         assertLt(hf, 1 ether, "user1 should be liquidatable after price crash");
@@ -308,8 +330,9 @@ contract AuditFixVerification is Test {
         // liquidateToken = tokenB (the borrowed token, repaid by liquidator)
         // depositToken = tokenA (the collateral token, seized by liquidator)
         uint256 liquidateAmount = 1_000e6; // liquidate 1000 tokenB of debt
+        uint256 seizedAmount;
         vm.prank(liquidator);
-        manager.tokenLiquidate(user1, address(tokenB), liquidateAmount, address(tokenA));
+        seizedAmount = manager.tokenLiquidate(user1, address(tokenB), liquidateAmount, address(tokenA));
 
         // --- Step 6: Verify correct token types were burned ---
         uint256 user1LoanCoinB_after = IERC20(loanCoinB).balanceOf(user1);
@@ -337,6 +360,198 @@ contract AuditFixVerification is Test {
             0,
             "C-1 FIX: User should have no loan coins for tokenA (was not borrowed)"
         );
+
+        assertEq(
+            tokenA.balanceOf(liquidator) - liquidatorTokenA_before,
+            seizedAmount,
+            "C-1 FIX: Liquidator should receive underlying collateral tokenA"
+        );
+        assertEq(
+            IERC20(depositCoinA).balanceOf(liquidator),
+            liquidatorDepositCoinA_before,
+            "C-1 FIX: Liquidator should not receive deposit-coin collateral claims"
+        );
+        assertEq(
+            vaultTokenA_before - tokenA.balanceOf(address(vaults)),
+            seizedAmount,
+            "C-1 FIX: Liquidation should consume vault collateral cash"
+        );
+    }
+
+    function test_VaultCashAccountingUsesRealBalanceWhenDebtAccruesFaster() public {
+        manager.assetsDeposit(address(tokenA), 40 ether, user1);
+        manager.assetsDeposit(address(tokenB), 50_000e6, user2);
+        manager.lendAsset(address(tokenB), 49_000e6, user1);
+
+        vm.warp(block.timestamp + 365 days);
+        feedA.setUpdatedAt(block.timestamp);
+        feedB.setUpdatedAt(block.timestamp);
+
+        uint256 depositSupply = IERC20(depositCoinB).totalSupply();
+        uint256 loanSupply = IERC20(loanCoinB).totalSupply();
+        assertGt(
+            loanSupply,
+            depositSupply,
+            "setup failed: debt supply should exceed deposit supply after accrual"
+        );
+
+        uint256 expectedVaultCash = 1_000 ether; // 1,000 tokenB remaining, normalized to 18 decimals
+        assertEq(
+            manager.VaultTokensAmount(address(tokenB)),
+            expectedVaultCash,
+            "VaultTokensAmount should reflect real vault cash, not supply delta"
+        );
+
+        uint256 user2BalanceBefore = tokenB.balanceOf(user2);
+        manager.withdrawDeposit(address(tokenB), 500e6, user2);
+        uint256 user2BalanceAfter = tokenB.balanceOf(user2);
+
+        assertEq(
+            user2BalanceAfter - user2BalanceBefore,
+            500e6,
+            "cash-backed withdrawal should still succeed when debt supply exceeds deposit supply"
+        );
+        assertEq(
+            tokenB.balanceOf(address(vaults)),
+            500e6,
+            "vault cash should decrease by the withdrawn raw token amount"
+        );
+    }
+
+    function test_LooperDepositBorrowsComputedRecursiveAmount() public {
+        uint256 loopAmount = 1_000e6;
+        uint256 percentage = 5_000; // 50%
+        uint256 expectedBorrowRaw = (loopAmount * percentage) / 10_000;
+        uint256 expectedBorrowNormalized = expectedBorrowRaw * 1 ether / 1e6;
+
+        tokenB.mint(user1, loopAmount);
+
+        vm.prank(user1);
+        tokenB.approve(address(lst), loopAmount);
+
+        vm.prank(user1);
+        lst.looperDeposit(address(tokenB), address(tokenB), loopAmount, 1, percentage);
+
+        assertEq(
+            IERC20(loanCoinB).balanceOf(user1),
+            expectedBorrowNormalized,
+            "looper should borrow only the computed lendAmount"
+        );
+        assertEq(
+            tokenB.balanceOf(address(vaults)),
+            loopAmount - expectedBorrowRaw,
+            "vault cash should reflect only the computed recursive borrow"
+        );
+    }
+
+    function test_LiquidationUnderlyingModeRevertsWhenCollateralCashIsUnavailable() public {
+        manager.assetsDeposit(address(tokenA), 10 ether, user1);
+        manager.assetsDeposit(address(tokenB), 50_000e6, user2);
+        manager.lendAsset(address(tokenB), 10_000e6, user1);
+        manager.lendAsset(address(tokenA), 9.9 ether, user2);
+
+        assertEq(
+            tokenA.balanceOf(address(vaults)),
+            0.1 ether,
+            "setup failed: tokenA vault cash should be mostly borrowed out"
+        );
+
+        feedA.setPrice(1100e8);
+        assertLt(
+            manager.viewUsersHealthFactor(user1),
+            1 ether,
+            "user1 should be liquidatable after price crash"
+        );
+
+        vm.expectRevert();
+        vm.prank(liquidator);
+        manager.tokenLiquidate(user1, address(tokenB), 1_000e6, address(tokenA));
+    }
+
+    function test_LiquidationClaimModeSucceedsWhenCollateralCashIsUnavailable() public {
+        manager.assetsDeposit(address(tokenA), 10 ether, user1);
+        manager.assetsDeposit(address(tokenB), 50_000e6, user2);
+        manager.lendAsset(address(tokenB), 10_000e6, user1);
+        manager.lendAsset(address(tokenA), 9.9 ether, user2);
+
+        assertEq(
+            tokenA.balanceOf(address(vaults)),
+            0.1 ether,
+            "setup failed: tokenA vault cash should be mostly borrowed out"
+        );
+
+        feedA.setPrice(1100e8);
+        assertLt(
+            manager.viewUsersHealthFactor(user1),
+            1 ether,
+            "user1 should be liquidatable after price crash"
+        );
+
+        uint256 liquidatorTokenABefore = tokenA.balanceOf(liquidator);
+        uint256 liquidatorDepositCoinBefore = IERC20(depositCoinA).balanceOf(liquidator);
+        uint256 vaultTokenABefore = tokenA.balanceOf(address(vaults));
+        uint256 userDebtBefore = IERC20(loanCoinB).balanceOf(user1);
+        uint256 seizedAmount;
+
+        vm.prank(liquidator);
+        seizedAmount = manager.tokenLiquidateToDepositCoin(
+            user1,
+            address(tokenB),
+            1_000e6,
+            address(tokenA)
+        );
+
+        assertEq(
+            tokenA.balanceOf(liquidator),
+            liquidatorTokenABefore,
+            "claim-mode liquidation should not transfer underlying tokenA"
+        );
+        assertGt(
+            IERC20(depositCoinA).balanceOf(liquidator),
+            liquidatorDepositCoinBefore,
+            "claim-mode liquidation should mint collateral deposit-coin claim"
+        );
+        assertEq(
+            tokenA.balanceOf(address(vaults)),
+            vaultTokenABefore,
+            "claim-mode liquidation should not require vault tokenA cash"
+        );
+        assertLt(
+            IERC20(loanCoinB).balanceOf(user1),
+            userDebtBefore,
+            "claim-mode liquidation should still repay user debt"
+        );
+        assertGt(
+            seizedAmount,
+            0,
+            "claim-mode liquidation should still report seized raw collateral amount"
+        );
+    }
+
+    function test_LiquidationRejectsRepayAboveCloseFactor() public {
+        manager.assetsDeposit(address(tokenA), 10 ether, user1);
+        manager.assetsDeposit(address(tokenB), 50_000e6, user2);
+        manager.lendAsset(address(tokenB), 10_000e6, user1);
+
+        feedA.setPrice(200e8);
+        assertLt(manager.viewUsersHealthFactor(user1), 1 ether);
+
+        vm.expectRevert("Lending Manager: Repay exceeds close factor");
+        vm.prank(liquidator);
+        manager.tokenLiquidate(user1, address(tokenB), 6_000e6, address(tokenA));
+    }
+
+    function test_SelfLiquidationRejected() public {
+        manager.assetsDeposit(address(tokenA), 10 ether, user1);
+        manager.assetsDeposit(address(tokenB), 50_000e6, user2);
+        manager.lendAsset(address(tokenB), 10_000e6, user1);
+
+        feedA.setPrice(200e8);
+        assertLt(manager.viewUsersHealthFactor(user1), 1 ether);
+
+        vm.expectRevert("Lending Manager: Self liquidation not allowed");
+        vm.prank(user1);
+        manager.tokenLiquidate(user1, address(tokenB), 1_000e6, address(tokenA));
     }
 
     // =====================================================================
@@ -395,6 +610,48 @@ contract AuditFixVerification is Test {
             450,   // bestDepositInterestRate
             true
         );
+    }
+
+    function test_CannotSetBestDepositInterestRateAboveCap() public {
+        MockERC20 newToken = new MockERC20("Rate Token", "RATE", 18);
+
+        vm.expectRevert();
+        manager.licensedAssetsRegister(
+            address(newToken),
+            8000,
+            500,
+            0,
+            7000,
+            1000,
+            0,
+            9500,
+            1001,
+            true
+        );
+
+        vm.expectRevert();
+        manager.licensedAssetsReset(
+            address(tokenA),
+            8000,
+            500,
+            0,
+            7000,
+            1000,
+            0,
+            9500,
+            1001
+        );
+    }
+
+    function test_UserModeValidationRejectsUnknownModesAndUnexpectedRIMAssets() public {
+        vm.expectRevert("Lending Manager: Unknown mode");
+        manager.userModeSetting(2, address(0), user1);
+
+        vm.expectRevert("Lending Manager: RIM asset only allowed in mode 1");
+        manager.userModeSetting(0, address(tokenA), user1);
+
+        vm.expectRevert("Lending Manager: Mode 1 Need a RIMAsset.");
+        manager.userModeSetting(1, address(tokenA), user1);
     }
 
     // =====================================================================

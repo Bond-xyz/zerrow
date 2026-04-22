@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.6;
 
-import "forge-std/Test.sol";
+import "./utils/TestBase.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
@@ -68,7 +68,7 @@ contract MockCoreAlgorithm {
 //  1.  UUPS Proxy Deployment + Initialization Tests
 // ===========================================================================
 
-contract LendingManagerProxyTest is Test {
+contract LendingManagerProxyTest is TestBase {
     lendingManager public impl;
     ERC1967Proxy public proxy;
     lendingManager public manager; // proxy cast
@@ -102,7 +102,7 @@ contract LendingManagerProxyTest is Test {
     }
 }
 
-contract LendingVaultsProxyTest is Test {
+contract LendingVaultsProxyTest is TestBase {
     lendingVaults public impl;
     ERC1967Proxy public proxy;
     lendingVaults public vaults;
@@ -128,7 +128,7 @@ contract LendingVaultsProxyTest is Test {
     }
 }
 
-contract CoinFactoryProxyTest is Test {
+contract CoinFactoryProxyTest is TestBase {
     coinFactory public impl;
     ERC1967Proxy public proxy;
     coinFactory public factory;
@@ -154,7 +154,7 @@ contract CoinFactoryProxyTest is Test {
     }
 }
 
-contract ZerrowOracleProxyTest is Test {
+contract ZerrowOracleProxyTest is TestBase {
     zerrowOracleRedstone public impl;
     ERC1967Proxy public proxy;
     zerrowOracleRedstone public oracle;
@@ -186,7 +186,7 @@ contract ZerrowOracleProxyTest is Test {
 //  2.  UUPS Upgrade Flow Tests
 // ===========================================================================
 
-contract LendingManagerUpgradeTest is Test {
+contract LendingManagerUpgradeTest is TestBase {
     lendingManager public impl;
     ERC1967Proxy public proxy;
     lendingManager public manager;
@@ -313,7 +313,7 @@ contract LendingManagerUpgradeTest is Test {
     }
 }
 
-contract LendingVaultsUpgradeTest is Test {
+contract LendingVaultsUpgradeTest is TestBase {
     lendingVaults public impl;
     ERC1967Proxy public proxy;
     lendingVaults public vaults;
@@ -383,7 +383,7 @@ contract LendingVaultsUpgradeTest is Test {
     }
 }
 
-contract CoinFactoryUpgradeTest is Test {
+contract CoinFactoryUpgradeTest is TestBase {
     coinFactory public impl;
     ERC1967Proxy public proxy;
     coinFactory public factory;
@@ -459,7 +459,7 @@ contract CoinFactoryUpgradeTest is Test {
     }
 }
 
-contract ZerrowOracleUpgradeTest is Test {
+contract ZerrowOracleUpgradeTest is TestBase {
     zerrowOracleRedstone public impl;
     ERC1967Proxy public proxy;
     zerrowOracleRedstone public oracle;
@@ -529,7 +529,7 @@ contract ZerrowOracleUpgradeTest is Test {
 //  3.  BeaconProxy Tests (depositOrLoanCoin)
 // ===========================================================================
 
-contract BeaconProxyTest is Test {
+contract BeaconProxyTest is TestBase {
     depositOrLoanCoin public impl;
     UpgradeableBeacon public beacon;
     address public beaconOwner = address(0xA5);
@@ -696,7 +696,7 @@ contract MockLendingManagerForCoin {
 //  4.  Pausability Tests
 // ===========================================================================
 
-contract PausabilityTest is Test {
+contract PausabilityTest is TestBase {
     lendingManager public impl;
     ERC1967Proxy public proxy;
     lendingManager public manager;
@@ -803,7 +803,7 @@ contract PausabilityTest is Test {
 //  5.  Access Control Tests
 // ===========================================================================
 
-contract AccessControlTest is Test {
+contract AccessControlTest is TestBase {
     address public setter = address(0xA1);
     address public newSetter = address(0xC1);
     address public nonSetter = address(0xB1);

@@ -90,13 +90,9 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         view
         returns (uint availableAmount)
     {
-        uint[2] memory depositAndLendAmount;
-        depositAndLendAmount = assetsDepositAndLendAmount(tokenWant);
-        if (depositAndLendAmount[0] > depositAndLendAmount[1]) {
-                availableAmount = depositAndLendAmount[0] - depositAndLendAmount[1];
-            } else {
-                availableAmount = 0;
-            }
+        availableAmount = iLendingManager(lendingManager).VaultTokensAmount(
+            tokenWant
+        );
     }
 
     function lendAvailableAmount()
@@ -107,16 +103,9 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         uint[] memory assetPrice = licensedAssetPrice();
         uint assetLength = assetPrice.length;
         availableAmount = new uint[](assetLength);
-        uint[2] memory depositAndLendAmount;
         for (uint i = 0; i != assetLength; i++) {
-            depositAndLendAmount = assetsDepositAndLendAmount(assetsSerialNumber(i));
-            if (depositAndLendAmount[0] > depositAndLendAmount[1]) {
-                availableAmount[i] =
-                    depositAndLendAmount[0] -
-                    depositAndLendAmount[1];
-            } else {
-                availableAmount[i] = 0;
-            }
+            availableAmount[i] = iLendingManager(lendingManager)
+                .VaultTokensAmount(assetsSerialNumber(i));
         }
     }
 
@@ -660,6 +649,26 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         }
     }
     //-------------------------------token Liquidate Estimate-------------------------------------------
+    function _refundTokenDelta(address tokenAddr, uint balanceBefore) internal {
+        uint currentBalance = IERC20(tokenAddr).balanceOf(address(this));
+        if (currentBalance > balanceBefore) {
+            IERC20(tokenAddr).safeTransfer(
+                msg.sender,
+                currentBalance - balanceBefore
+            );
+        }
+    }
+
+    function _refundNativeDelta(uint nativeBefore) internal {
+        uint currentNative = address(this).balance;
+        if (currentNative > nativeBefore) {
+            (bool success, ) = payable(msg.sender).call{
+                value: currentNative - nativeBefore
+            }("");
+            require(success, "Native refund failed");
+        }
+    }
+
     function tokenLiquidateEstimate(address user,
                             address liquidateToken,
                             address depositToken) public view returns(uint[2] memory maxAmounts){
@@ -667,31 +676,52 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
             uint[2] memory zero;
             return zero;
         }
-        uint amountliquidate = iDepositOrLoanCoin(assetsDepositAndLendAddrs(liquidateToken)[0]).balanceOf(user);
-        uint amountDeposit = iDepositOrLoanCoin(assetsDepositAndLendAddrs(depositToken)[1]).balanceOf(user);
+        uint amountLending = iDepositOrLoanCoin(assetsDepositAndLendAddrs(liquidateToken)[1]).balanceOf(user);
+        uint amountDeposit = iDepositOrLoanCoin(assetsDepositAndLendAddrs(depositToken)[0]).balanceOf(user);
+        if (amountLending == 0 || amountDeposit == 0) {
+            return maxAmounts;
+        }
+
         uint liquidateTokenPrice = iSlcOracle(oracleAddr).getPrice(liquidateToken);
         uint depositTokenPrice = iSlcOracle(oracleAddr).getPrice(depositToken);
-        iLendingManager.licensedAsset memory liquidateTokenAttribute = licensedAssets(liquidateToken);
-
-        uint liquidateMaxValue = amountliquidate * liquidateTokenPrice / 1 ether;
         uint upperSystemLimit = UPPER_SYSTEM_LIMIT();
-        uint depositMaxValue = amountDeposit * depositTokenPrice / 1 ether
-                      * upperSystemLimit / (upperSystemLimit - liquidateTokenAttribute.liquidationPenalty);
+        uint closeFactor = iLendingManager(lendingManager).LIQUIDATION_CLOSE_FACTOR();
+        uint liquidationPenalty = licensedAssets(depositToken).liquidationPenalty;
 
-        if(liquidateMaxValue < depositMaxValue){
-            maxAmounts[0] = amountliquidate;
-            maxAmounts[1] = liquidateMaxValue * (upperSystemLimit - liquidateTokenAttribute.liquidationPenalty) * 1 ether
-                                            / (upperSystemLimit * depositTokenPrice);
-        }else if(liquidateMaxValue == depositMaxValue){
-            maxAmounts[0] = amountliquidate;
-            maxAmounts[1] = amountDeposit;
-        }else{
-            maxAmounts[0] = depositMaxValue * 1 ether / liquidateTokenPrice;
-            maxAmounts[1] = amountDeposit;
-
+        uint maxCloseAmount = amountLending * closeFactor / upperSystemLimit;
+        if (maxCloseAmount == 0) {
+            maxCloseAmount = amountLending;
         }
-        maxAmounts[0] = maxAmounts[0] * (10**iDecimals(liquidateToken).decimals()) / 1 ether;
-        maxAmounts[1] = maxAmounts[1] * (10**iDecimals(depositToken).decimals()) / 1 ether;
+
+        uint maxRepayByCollateral = amountDeposit * depositTokenPrice / 1 ether;
+        maxRepayByCollateral = maxRepayByCollateral
+            * upperSystemLimit
+            / (upperSystemLimit + liquidationPenalty);
+        maxRepayByCollateral = maxRepayByCollateral * 1 ether / liquidateTokenPrice;
+
+        uint maxRepayNormalized = maxCloseAmount < maxRepayByCollateral
+            ? maxCloseAmount
+            : maxRepayByCollateral;
+        if (maxRepayNormalized > amountLending) {
+            maxRepayNormalized = amountLending;
+        }
+        if (maxRepayNormalized == 0) {
+            return maxAmounts;
+        }
+
+        uint maxSeizeNormalized = maxRepayNormalized
+            * liquidateTokenPrice
+            * (upperSystemLimit + liquidationPenalty)
+            / (upperSystemLimit * depositTokenPrice);
+
+        maxAmounts[0] =
+            maxRepayNormalized *
+            (10**iDecimals(liquidateToken).decimals()) /
+            1 ether;
+        maxAmounts[1] =
+            maxSeizeNormalized *
+            (10**iDecimals(depositToken).decimals()) /
+            1 ether;
     }
 
     //=======================================stake for Gimo=============================================
@@ -710,6 +740,8 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
     //-----------------------------------------loop for assets---------------------------------------------
     //  Assets single Lst Deposit
     function lstStake(address stakeToken) public payable nonReentrant {
+        uint nativeBefore = address(this).balance - msg.value;
+        uint stakeBalanceBefore = IERC20(stakeToken).balanceOf(address(this));
 
         if(stakeToken == gToken){
             iLstGimo(lstGimo).stake{value: msg.value}("zerrow");
@@ -717,10 +749,13 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         }else{
             revert("Need be a Lst Token");
         }
-        IERC20(stakeToken).safeTransfer( msg.sender, IERC20(stakeToken).balanceOf(address(this)) );
+        _refundTokenDelta(stakeToken, stakeBalanceBefore);
+        _refundNativeDelta(nativeBefore);
     }
 
     function lstStakeAndDeposit(address stakeToken) public payable nonReentrant {
+        uint nativeBefore = address(this).balance - msg.value;
+        uint stakeBalanceBefore = IERC20(stakeToken).balanceOf(address(this));
 
         if(stakeToken == gToken){
             iLstGimo(lstGimo).stake{value: msg.value}("zerrow");
@@ -728,9 +763,11 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         }else{
             revert("Need be a Lst Token");
         }
-        uint amount = IERC20(stakeToken).balanceOf(address(this));
+        uint amount = IERC20(stakeToken).balanceOf(address(this)) - stakeBalanceBefore;
         IERC20(stakeToken).approve(lendingManager, amount);
         iLendingManager(lendingManager).assetsDeposit( stakeToken, amount, msg.sender );
+        _refundTokenDelta(stakeToken, stakeBalanceBefore);
+        _refundNativeDelta(nativeBefore);
     }
 
     //  Assets loop Deposit, both Lst and Other high liqulity Coin
@@ -740,8 +777,12 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
                            uint    times,
                            uint    percentage) external payable nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
+        require(times == 1, "Looper limited to one iteration");
         require(percentage <= 10000, "Percentage must be <= 10000");
         uint currentAmount = amount;
+        uint nativeBefore = address(this).balance - msg.value;
+        uint tokenBefore = IERC20(tokenAddr).balanceOf(address(this));
+        uint stakeBefore = IERC20(stakeToken).balanceOf(address(this));
 
         if (tokenAddr == A0GI) {
             require(amount == msg.value,"Lending Interface: amount should == msg.value");
@@ -757,7 +798,7 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
                     // Stake current amount
                     iLstGimo(lstGimo).stake{value: currentAmount}("zerrow");
                     // Get received gTokens
-                    uint gTokenBalance = IERC20(gToken).balanceOf(address(this));
+                    uint gTokenBalance = IERC20(gToken).balanceOf(address(this)) - stakeBefore;
                     require(gTokenBalance > 0, "No gTokens received");
                     // Approve and deposit gTokens
                     IERC20(gToken).approve(lendingManager, gTokenBalance);
@@ -771,13 +812,6 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
                 iLendingManager(lendingManager).lendAsset(tokenAddr, lendAmount, msg.sender );
                 // Update for next iteration
                 currentAmount = lendAmount;
-                // Clear any remaining A0GI balance to Native token
-                uint remainingBalance = IERC20(A0GI).balanceOf(address(this));
-                if (remainingBalance == 0) {
-                    break;
-                }else{
-                    iwA0GI(A0GI).withdraw(remainingBalance);
-                }
             }else if(tokenAddr == stakeToken) {
                 require(currentAmount <= IERC20(tokenAddr).balanceOf(address(this)),"Insufficient balance");
                 // Approve and deposit tokens
@@ -786,6 +820,8 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
                 // Calculate and validate lending amount
                 uint lendAmount = (currentAmount * percentage) / 10000;
                 require(lendAmount > 0, "Lending amount too small");
+                // Borrow only the computed recursive step, not the original amount,
+                // otherwise the helper over-leverages the user in a single hop.
                 iLendingManager(lendingManager).lendAsset( tokenAddr, lendAmount, msg.sender );
                 // Update for next iteration
                 currentAmount = lendAmount;
@@ -793,6 +829,12 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
                 revert("Token Not allowed");
             }
         }
+
+        if (tokenAddr != A0GI) {
+            _refundTokenDelta(tokenAddr, tokenBefore);
+        }
+        _refundTokenDelta(stakeToken, stakeBefore);
+        _refundNativeDelta(nativeBefore);
     }
     // ======================== contract base methods =====================
     fallback() external payable {}

@@ -92,6 +92,7 @@ contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrade
         address[2] memory pair = iLendingManager(lendingManager).assetsDepositAndLendAddrs(token);
         uint amountD18 = iDepositOrLoanCoin(pair[0]).totalSupply();
         uint amountL18 = iDepositOrLoanCoin(pair[1]).totalSupply();
+        require(amountD18 >= amountL18, "Lending Vault: Protocol underwater");
 
         uint netNorm18 = amountD18 - amountL18;
         uint d = iDecimals(token).decimals();
