@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build And Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Install Solidity Dependencies
+        run: npm install --no-package-lock --ignore-scripts
+
+      - name: Build Contracts
+        run: npm run build
+
+      - name: Run Core Test Suites
+        run: npm test
+
+      - name: Run Redstone Fork Suite
+        if: ${{ secrets.ZERO_G_RPC_URL != '' }}
+        env:
+          ZERO_G_RPC_URL: ${{ secrets.ZERO_G_RPC_URL }}
+        run: npm run test:fork
+
+      - name: Skip Redstone Fork Suite
+        if: ${{ secrets.ZERO_G_RPC_URL == '' }}
+        run: echo "Skipping Redstone fork tests because ZERO_G_RPC_URL is not set."
