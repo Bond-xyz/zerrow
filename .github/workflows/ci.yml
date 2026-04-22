@@ -39,11 +39,11 @@ jobs:
         run: npm test
 
       - name: Run Redstone Fork Suite
-        if: ${{ secrets.ZERO_G_RPC_URL != '' }}
         env:
           ZERO_G_RPC_URL: ${{ secrets.ZERO_G_RPC_URL }}
-        run: npm run test:fork
-
-      - name: Skip Redstone Fork Suite
-        if: ${{ secrets.ZERO_G_RPC_URL == '' }}
-        run: echo "Skipping Redstone fork tests because ZERO_G_RPC_URL is not set."
+        run: |
+          if [ -n "$ZERO_G_RPC_URL" ]; then
+            npm run test:fork
+          else
+            echo "Skipping Redstone fork tests because ZERO_G_RPC_URL is not set."
+          fi
