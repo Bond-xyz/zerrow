@@ -28,6 +28,7 @@ interface iLendingManager{
     function ONE_YEAR() external view returns (uint);
     // uint public constant UPPER_SYSTEM_LIMIT = 10000;
     function UPPER_SYSTEM_LIMIT() external view returns (uint);
+    function LIQUIDATION_CLOSE_FACTOR() external view returns (uint);
 
     // uint    public normalFloorOfHealthFactor;
     function normalFloorOfHealthFactor() external view returns (uint);
@@ -75,6 +76,7 @@ interface iLendingManager{
                                                                    uint latestDepositInterest,
                                                                    uint latestLendingInterest);
     function licensedAssetAmount() external view returns(uint assetLength);
+    function VaultTokensAmount(address tokenAddr) external view returns(uint maxAmount);
     // function licensedAssetPrice() external view returns(uint[] memory assetPrice);
     // function licensedAssetOverview() external view returns(uint totalValueOfMortgagedAssets, uint totalValueOfLendedAssets);
     function userDepositAndLendingValue(address user) external view returns(uint _amountDeposit,uint _amountLending);
@@ -99,7 +101,7 @@ interface iLendingManager{
     function repayLoan(address tokenAddr,uint amount, address user) external ;
         
     // interface approvals for whitelisted callers
-    function setInterfaceApproval(address iface, bool approved) external;
+    function setInterfaceApproval(bool approved) external;
     function interfaceApproval(address user, address iface) external view returns (bool);
 
     // FlashLoan
@@ -114,6 +116,10 @@ interface iLendingManager{
                             address liquidateToken,
                             uint    liquidateAmount, 
                             address depositToken) external returns(uint usedAmount) ;
+    function tokenLiquidateToDepositCoin(address user,
+                                         address liquidateToken,
+                                         uint    liquidateAmount,
+                                         address depositToken) external returns(uint usedAmount) ;
     // function tokenLiquidateEstimate(address user,
     //                         address liquidateToken,
     //                         address depositToken) external view returns(uint[2] memory maxAmounts);

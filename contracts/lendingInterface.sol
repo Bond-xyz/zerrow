@@ -86,16 +86,10 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         uint[] memory assetPrice = licensedAssetPrice();
         uint assetLength = assetPrice.length;
         availableAmount = new uint[](assetLength);
-        uint[2] memory depositAndLendAmount;
         for (uint i = 0; i != assetLength; i++) {
-            depositAndLendAmount = assetsDepositAndLendAmount(assetsSerialNumber(i));
-            if (depositAndLendAmount[0] > depositAndLendAmount[1]) {
-                availableAmount[i] =
-                    depositAndLendAmount[0] -
-                    depositAndLendAmount[1];
-            } else {
-                availableAmount[i] = 0;
-            }
+            availableAmount[i] = iLendingManager(lendingManager).VaultTokensAmount(
+                assetsSerialNumber(i)
+            );
         }
     }
 
@@ -640,6 +634,39 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     }
 
     //------------------------------------------------Operation----------------------------------------------------
+    function _refundTokenDelta(address tokenAddr, uint balanceBefore) internal {
+        uint balanceAfter = IERC20(tokenAddr).balanceOf(address(this));
+        if (balanceAfter > balanceBefore) {
+            IERC20(tokenAddr).safeTransfer(msg.sender, balanceAfter - balanceBefore);
+        }
+    }
+
+    function _refundNativeCompatible(
+        address tokenAddr,
+        uint tokenBefore,
+        uint wrappedBefore,
+        uint nativeBefore
+    ) internal {
+        uint wrappedAfter = IERC20(A0GI).balanceOf(address(this));
+        if (wrappedAfter > wrappedBefore) {
+            iwA0GI(A0GI).withdraw(wrappedAfter - wrappedBefore);
+        }
+
+        if (tokenAddr != A0GI) {
+            uint tokenAfter = IERC20(tokenAddr).balanceOf(address(this));
+            if (tokenAfter > tokenBefore) {
+                IERC20(tokenAddr).safeTransfer(msg.sender, tokenAfter - tokenBefore);
+            }
+        }
+
+        uint nativeAfter = address(this).balance;
+        if (nativeAfter > nativeBefore) {
+            address payable receiver = payable(msg.sender);
+            (bool success, ) = receiver.call{value: nativeAfter - nativeBefore}("");
+            require(success, "Lending Interface: 0g Transfer Failed");
+        }
+    }
+
     function userModeSetting(
         uint8 _mode,
         address _userRIMAssetsAddress
@@ -652,6 +679,7 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     }
     //  Assets Deposit
     function assetsDeposit(address tokenAddr, uint amount) external nonReentrant{
+        uint tokenBefore = IERC20(tokenAddr).balanceOf(address(this));
         IERC20(tokenAddr).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(tokenAddr).approve(lendingManager, amount);
         iLendingManager(lendingManager).assetsDeposit(
@@ -659,43 +687,31 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             amount,
             msg.sender
         );
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
+        _refundTokenDelta(tokenAddr, tokenBefore);
     }
     // Withdrawal of deposits
     function withdrawDeposit(address tokenAddr, uint amount) external nonReentrant{
+        uint tokenBefore = IERC20(tokenAddr).balanceOf(address(this));
         iLendingManager(lendingManager).withdrawDeposit(
             tokenAddr,
             amount,
             msg.sender
         );
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
+        _refundTokenDelta(tokenAddr, tokenBefore);
     }
     // lend Asset
     function lendAsset(address tokenAddr, uint amount) external nonReentrant{
+        uint tokenBefore = IERC20(tokenAddr).balanceOf(address(this));
         iLendingManager(lendingManager).lendAsset(
             tokenAddr,
             amount,
             msg.sender
         );
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
+        _refundTokenDelta(tokenAddr, tokenBefore);
     }
     // repay Loan
     function repayLoan(address tokenAddr, uint amount) external nonReentrant{
+        uint tokenBefore = IERC20(tokenAddr).balanceOf(address(this));
         IERC20(tokenAddr).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(tokenAddr).approve(lendingManager, amount);
         iLendingManager(lendingManager).repayLoan(
@@ -703,16 +719,14 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             amount,
             msg.sender
         );
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
+        _refundTokenDelta(tokenAddr, tokenBefore);
     }
     //-----------------------------------------Operation 2 can use 0g---------------------------------------------
     //  Assets Deposit
     function assetsDeposit2(address tokenAddr, uint amount) external payable nonReentrant{
+        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint nativeBefore = address(this).balance - msg.value;
         if (tokenAddr == A0GI) {
             require(
                 amount <= msg.value,
@@ -734,44 +748,24 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             amount,
             msg.sender
         );
-        if (IERC20(A0GI).balanceOf(address(this)) > 0) {
-            iwA0GI(A0GI).withdraw(IERC20(A0GI).balanceOf(address(this)));
-        }
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
-        if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender);
-            (bool success, ) = receiver.call{value: address(this).balance}("");
-            require(success, "Lending Interface: 0g Transfer Failed");
-        }
+        _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     // Withdrawal of deposits
     function withdrawDeposit2(address tokenAddr, uint amount) external nonReentrant{
+        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint nativeBefore = address(this).balance;
         iLendingManager(lendingManager).withdrawDeposit(
             tokenAddr,
             amount,
             msg.sender
         );
-        if (IERC20(A0GI).balanceOf(address(this)) > 0) {
-            iwA0GI(A0GI).withdraw(IERC20(A0GI).balanceOf(address(this)));
-        }
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
-        if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender);
-            (bool success, ) = receiver.call{value: address(this).balance}("");
-            require(success, "Lending Interface: 0g Transfer Failed");
-        }
+        _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     function withdrawDepositMax2(address tokenAddr) external nonReentrant {
+        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint nativeBefore = address(this).balance;
         address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
         uint tokenBalance = IERC20(depositAndLend[0]).balanceOf(
             address(msg.sender)
@@ -782,45 +776,25 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             tokenBalance,
             msg.sender
         );
-        if (IERC20(A0GI).balanceOf(address(this)) > 0) {
-            iwA0GI(A0GI).withdraw(IERC20(A0GI).balanceOf(address(this)));
-        }
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
-        if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender);
-            (bool success, ) = receiver.call{value: address(this).balance}("");
-            require(success, "Lending Interface: 0g Transfer Failed");
-        }
+        _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     // lend Asset
     function lendAsset2(address tokenAddr, uint amount) external nonReentrant{
+        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint nativeBefore = address(this).balance;
         iLendingManager(lendingManager).lendAsset(
             tokenAddr,
             amount,
             msg.sender
         );
-        if (IERC20(A0GI).balanceOf(address(this)) > 0) {
-            iwA0GI(A0GI).withdraw(IERC20(A0GI).balanceOf(address(this)));
-        }
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
-        if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender);
-            (bool success, ) = receiver.call{value: address(this).balance}("");
-            require(success, "Lending Interface: 0g Transfer Failed");
-        }
+        _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     // repay Loan
     function repayLoan2(address tokenAddr, uint amount) external payable nonReentrant{
+        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint nativeBefore = address(this).balance - msg.value;
         if (tokenAddr == A0GI) {
             require(
                 amount <= msg.value,
@@ -841,22 +815,12 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             amount,
             msg.sender
         );
-        if (IERC20(A0GI).balanceOf(address(this)) > 0) {
-            iwA0GI(A0GI).withdraw(IERC20(A0GI).balanceOf(address(this)));
-        }
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
-        if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender);
-            (bool success, ) = receiver.call{value: address(this).balance}("");
-            require(success, "Lending Interface: 0g Transfer Failed");
-        }
+        _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     function repayLoanMax2(address tokenAddr) external payable nonReentrant {
+        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint nativeBefore = address(this).balance - msg.value;
         address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
         uint tokenBalance = IERC20(depositAndLend[1]).balanceOf(
             address(msg.sender)
@@ -885,20 +849,7 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             tokenBackAmount,
             msg.sender
         );
-        if (IERC20(A0GI).balanceOf(address(this)) > 0) {
-            iwA0GI(A0GI).withdraw(IERC20(A0GI).balanceOf(address(this)));
-        }
-        if (IERC20(tokenAddr).balanceOf(address(this)) > 0) {
-            IERC20(tokenAddr).safeTransfer(
-                msg.sender,
-                IERC20(tokenAddr).balanceOf(address(this))
-            );
-        }
-        if (address(this).balance > 0) {
-            address payable receiver = payable(msg.sender);
-            (bool success, ) = receiver.call{value: address(this).balance}("");
-            require(success, "Lending Interface: 0g Transfer Failed");
-        }
+        _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     // ======================== contract base methods =====================
     fallback() external payable {}

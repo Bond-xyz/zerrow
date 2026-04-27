@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.6;
 
-import "forge-std/Test.sol";
+import "./utils/TestBase.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 
@@ -23,7 +23,7 @@ import "../contracts/interfaces/iDepositOrLoanCoin.sol";
 //      --fork-url <0G_TESTNET_RPC>
 // ==========================================================================
 
-contract RedstoneOracleForkTest is Test {
+contract RedstoneOracleForkTest is TestBase {
     // ── Redstone feed addresses on 0G Galileo testnet ──
     address constant FEED_ETH  = 0x6f57Ff507735BcD3d86af83aF77ABD10395b2904;
     address constant FEED_USDT = 0xED2B1ca5D7E246f615c2291De309643D41FeC97e;
@@ -389,35 +389,40 @@ contract RedstoneOracleForkTest is Test {
         uint hf = manager.viewUsersHealthFactor(alice);
         emit log_named_uint("HF after heavy borrow", hf);
 
-        // Now simulate price drop: create a new lower-priced mock feed
-        // We'll use vm.mockCall to make the ETH feed return a much lower price
-        // This simulates ETH crashing
-        _mockFeedPrice(FEED_ETH, 500e8); // ETH drops to $500
+        // Lower ETH enough to make the position liquidatable, but not so far
+        // underwater that every partial liquidation worsens the health factor.
+        _mockFeedPrice(FEED_ETH, 1100e8); // ETH drops to $1100
 
         uint hfAfterCrash = manager.viewUsersHealthFactor(alice);
-        emit log_named_uint("HF after ETH crash to $500", hfAfterCrash);
+        emit log_named_uint("HF after ETH move to $1100", hfAfterCrash);
         assertLt(hfAfterCrash, 1 ether, "Should be liquidatable");
 
-        // Liquidator seizes ETH collateral by repaying USDT debt
-        // tokenLiquidate(user, liquidateToken=collateral, amount, depositToken=debt)
-        // NOTE: naming is inverted — liquidateToken is collateral seized, depositToken is debt repaid
-        uint liquidateAmt = 1 ether; // Seize 1 ETH of collateral
+        // Liquidator repays USDT debt and receives underlying ETH collateral.
+        uint liquidateAmt = 1_000e6; // repay 1,000 USDT of debt
+        uint liquidatorEthBefore = tokenETH.balanceOf(liquidator);
+        uint liquidatorDepositCoinBefore = iDepositOrLoanCoin(depositCoinETH).balanceOf(liquidator);
+        uint aliceLoanBefore = iDepositOrLoanCoin(loanCoinUSDT).balanceOf(alice);
+        uint seizedAmount;
 
         vm.prank(liquidator);
-        manager.tokenLiquidate(
+        seizedAmount = manager.tokenLiquidate(
             alice,
-            address(tokenETH),   // collateral being seized (liquidateToken)
+            address(tokenUSDT),  // debt token being repaid
             liquidateAmt,
-            address(tokenUSDT)   // debt being repaid (depositToken)
+            address(tokenETH)    // collateral token being seized
         );
 
-        // Verify liquidator received ETH collateral
+        // Verify liquidator received underlying ETH rather than deposit-coin claims
         uint liqETHBal = tokenETH.balanceOf(liquidator);
-        assertGt(liqETHBal, 100 ether, "Liquidator should have received ETH");
-        emit log_named_uint("Liquidator ETH balance", liqETHBal);
+        uint liqDepositBal = iDepositOrLoanCoin(depositCoinETH).balanceOf(liquidator);
+        assertEq(liqETHBal - liquidatorEthBefore, seizedAmount, "Liquidator should have received underlying ETH");
+        assertEq(liqDepositBal, liquidatorDepositCoinBefore, "Liquidator should not have received ETH deposit-coin claim");
+        emit log_named_uint("Liquidator ETH balance increase", liqETHBal - liquidatorEthBefore);
 
-        // Alice's deposit should have decreased
+        // Alice's debt and collateral should both have decreased
+        uint aliceLoanAfter = iDepositOrLoanCoin(loanCoinUSDT).balanceOf(alice);
         uint aliceDepositAfter = iDepositOrLoanCoin(depositCoinETH).balanceOf(alice);
+        assertLt(aliceLoanAfter, aliceLoanBefore, "Alice debt should decrease");
         assertLt(aliceDepositAfter, depositAmt, "Alice deposit should decrease");
         emit log_named_uint("Alice deposit after liquidation", aliceDepositAfter);
     }
