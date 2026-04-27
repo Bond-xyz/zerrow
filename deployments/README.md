@@ -57,7 +57,3 @@ The deploy script writes `deployments/og-testnet-staging.json` for testnet stagi
 - `lendingInterface` and `lstInterface` now support explicit admin handoff, so their upgrade authority can be transferred during the final handoff step instead of remaining stuck with the deployer.
 - The example Redstone feed maps under `config/` are templates. Replace any zero or pending feed addresses before broadcasting market configuration on a real environment.
 - The Galileo feed map assumes RedStone will publish a `0G/USD` feed for testnet. Once that address is available, configure `oracleFeedId: "0G"` with the published feed so `W0G` can be priced from native `0G`.
-
-## TODO Before Bond Deployment
-
-- Update Bond's shared registry native wrapper entry from `wA0GI` to `W0G` and enable the intended `W0G` lending market before using this deployment lane.
