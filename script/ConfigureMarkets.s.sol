@@ -51,16 +51,27 @@ contract ConfigureMarkets is ScriptBase {
             LendingParams memory lendingCfg = _readLendingParams(assetManifest, base);
             bool registered = _isRegistered(manager, token);
 
-            if (!lendingCfg.enabled) {
+            if (!assetEnabled || !lendingCfg.enabled) {
+                if (registered) {
+                    manager.licensedAssetsReset(
+                        token,
+                        0,
+                        lendingCfg.liqPenalty,
+                        0,
+                        1,
+                        lendingCfg.reserveFactor,
+                        lendingCfg.lendingModeNum,
+                        0,
+                        1
+                    );
+                }
                 continue;
             }
 
-            if (assetEnabled) {
-                address feed = _lookupFeed(feedManifest, oracleFeedId, feedCount);
-                oracle.setTokenFeed(token, feed);
-            }
+            address feed = _lookupFeed(feedManifest, oracleFeedId, feedCount);
+            oracle.setTokenFeed(token, feed);
 
-            if (!registered && assetEnabled) {
+            if (!registered) {
                 manager.licensedAssetsRegister(
                     token,
                     lendingCfg.maxLTV,
@@ -76,35 +87,17 @@ contract ConfigureMarkets is ScriptBase {
                 continue;
             }
 
-            if (registered && assetEnabled) {
-                manager.licensedAssetsReset(
-                    token,
-                    lendingCfg.maxLTV,
-                    lendingCfg.liqPenalty,
-                    lendingCfg.maxLendingAmountInRIM,
-                    lendingCfg.bestLendingRatio,
-                    lendingCfg.reserveFactor,
-                    lendingCfg.lendingModeNum,
-                    lendingCfg.homogeneousLTV,
-                    lendingCfg.depositRate
-                );
-                continue;
-            }
-
-            if (registered && !assetEnabled) {
-                manager.licensedAssetsReset(
-                    token,
-                    0,
-                    lendingCfg.liqPenalty,
-                    0,
-                    1,
-                    lendingCfg.reserveFactor,
-                    lendingCfg.lendingModeNum,
-                    0,
-                    1
-                );
-                continue;
-            }
+            manager.licensedAssetsReset(
+                token,
+                lendingCfg.maxLTV,
+                lendingCfg.liqPenalty,
+                lendingCfg.maxLendingAmountInRIM,
+                lendingCfg.bestLendingRatio,
+                lendingCfg.reserveFactor,
+                lendingCfg.lendingModeNum,
+                lendingCfg.homogeneousLTV,
+                lendingCfg.depositRate
+            );
         }
 
         vm.stopBroadcast();

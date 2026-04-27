@@ -147,6 +147,14 @@ if ! [[ "$ORACLE_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
   exit 1
 fi
 
+export RPC_URL
+export BOND_ENV
+export DEPLOYMENT_FILE
+export ASSETS_REGISTRY_PATH
+export ORACLE_FEED_MAP_PATH
+export LENDING_MANAGER_ADDRESS
+export ORACLE_ADDRESS
+
 DEPLOYER="$(cast wallet address "$PRIVATE_KEY")"
 SETTER_ADDRESS="$(cast call "$LENDING_MANAGER_ADDRESS" "setter()(address)" --rpc-url "$RPC_URL" 2>/dev/null || true)"
 
