@@ -206,12 +206,12 @@ Could be set to `type(uint).max`, disabling staleness checks. Year-old prices wo
 
 ---
 
-### H-8: lendAsset2 Fails to Transfer Non-A0GI Tokens
+### H-8: lendAsset2 Fails to Transfer Non-W0G Tokens
 
 **Status: FIXED** | **Confirmed by: Agents 2, 4**
 **Location:** `lendingInterface.sol:807-814`
 
-`else if` logic meant that if the contract had any A0GI dust, borrowed non-A0GI tokens were permanently stuck.
+`else if` logic meant that if the contract had any W0G dust, borrowed non-W0G tokens were permanently stuck.
 
 **Fix:** Changed `else if` to separate `if` blocks.
 

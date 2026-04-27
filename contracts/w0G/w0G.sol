@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.6;
 
-contract wA0GI {
+contract w0G {
     string public name = "Wrapped 0G";
-    string public symbol = "w0G";
+    string public symbol = "W0G";
     uint8 public decimals = 18;
 
     event Approval(address indexed src, address indexed guy, uint256 wad);
@@ -51,8 +51,8 @@ contract wA0GI {
         uint256 wad
     ) public returns (bool) {
         require(balanceOf[src] >= wad);
-        require(src != address(0), "wA0GI: transfer from the zero address");
-        require(dst != address(0), "wA0GI: transfer to the zero address");
+        require(src != address(0), "w0G: transfer from the zero address");
+        require(dst != address(0), "w0G: transfer to the zero address");
 
         if (
             src != msg.sender && allowance[src][msg.sender] != type(uint256).max

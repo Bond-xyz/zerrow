@@ -5,7 +5,7 @@ pragma solidity 0.8.6;
 /**
  * @dev Interface of the ERC20 standard as defined in the EIP.
  */
-interface iwA0GI {
+interface iw0G {
     /**
      * @dev mint the amount of tokens.
      */
