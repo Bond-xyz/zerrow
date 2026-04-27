@@ -5,10 +5,14 @@
   "scripts": {
     "build": "forge build",
     "compile": "npm run build",
-    "test": "npm run test:protocol && npm run test:upgrade",
+    "test": "npm run test:protocol && npm run test:upgrade && npm run test:ops",
     "test:protocol": "forge test --offline --match-contract AuditFixVerification",
     "test:upgrade": "forge test --offline --match-path test/UpgradeabilityTest.t.sol",
-    "test:fork": "forge test --offline --match-contract RedstoneOracleForkTest --fork-url $ZERO_G_RPC_URL"
+    "test:ops": "forge test --offline --match-path test/OpsAndDeploymentParityTest.t.sol",
+    "test:fork": "forge test --offline --match-contract RedstoneOracleForkTest --fork-url $ZERO_G_RPC_URL",
+    "deploy:protocol": "./scripts/deploy-protocol.sh",
+    "configure:markets": "./scripts/configure-markets.sh",
+    "handoff:admin": "./scripts/handoff-admin.sh"
   },
   "dependencies": {
     "@openzeppelin/contracts": "4.2.0",
