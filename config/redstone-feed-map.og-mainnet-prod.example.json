@@ -1,0 +1,26 @@
+{
+  "description": "Official RedStone explorer feeds for 0G Aristotle mainnet as of 2026-04-22",
+  "feedsCount": 5,
+  "feeds": [
+    {
+      "oracleFeedId": "0G",
+      "feed": "0xefe76D1C11F267d8735D240f53317F238D8C77c9"
+    },
+    {
+      "oracleFeedId": "USDC",
+      "feed": "0x6f57Ff507735BcD3d86af83aF77ABD10395b2904"
+    },
+    {
+      "oracleFeedId": "ETH",
+      "feed": "0xeC7C6AdcC867E1C22713D14797339750E36538E4"
+    },
+    {
+      "oracleFeedId": "BTC",
+      "feed": "0x98DC6E90D4c2f212ed9d124aD2aFBa4833268633"
+    },
+    {
+      "oracleFeedId": "USDT",
+      "feed": "0x7A532B1B204409472cB92cd07c8B0BB09DD2F520"
+    }
+  ]
+}

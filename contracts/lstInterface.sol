@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/iLendingManager.sol";
-import "./interfaces/iwA0GI.sol";
+import "./interfaces/iw0G.sol";
 import "./interfaces/islcoracle.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
@@ -17,7 +17,7 @@ import "./interfaces/iDecimals.sol";
 /// @custom:oz-upgrades-unsafe-allow constructor
 contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
     address public lendingManager;
-    address public A0GI;
+    address public W0G;
     address public oracleAddr;
     address public lCoreAddr;
     address public lstGimo;
@@ -25,11 +25,12 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
 
     /// @notice Admin address for upgrade authorization
     address public admin;
+    address public pendingAdmin;
 
     using SafeERC20 for IERC20;
 
     /// @dev Storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     /// @dev Disable initializer on implementation contract
     constructor() initializer {}
@@ -37,7 +38,7 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
     /// @notice Replaces constructor for proxy deployment
     function initialize(
         address _lendingManager,
-        address _A0GI,
+        address _W0G,
         address _lCoreAddr,
         address _oracleAddr,
         address _lstGimo,
@@ -46,7 +47,7 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         lendingManager = _lendingManager;
-        A0GI = _A0GI;
+        W0G = _W0G;
         oracleAddr = _oracleAddr;
         lCoreAddr = _lCoreAddr;
         lstGimo = _lstGimo;
@@ -57,6 +58,21 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
     /// @dev Required by UUPSUpgradeable
     function _authorizeUpgrade(address) internal override {
         require(msg.sender == admin, "not admin");
+    }
+
+    function transferAdmin(address _admin) external {
+        require(msg.sender == admin, "not admin");
+        require(_admin != address(0), "LST Interface: New admin cannot be zero");
+        require(_admin != admin, "LST Interface: Cannot transfer to current admin");
+        pendingAdmin = _admin;
+    }
+
+    function acceptAdmin(bool _TorF) external {
+        require(msg.sender == pendingAdmin, "LST Interface: Permission FORBIDDEN");
+        if (_TorF) {
+            admin = pendingAdmin;
+        }
+        pendingAdmin = address(0);
     }
 
     //------------------------------------------------ View ----------------------------------------------------
@@ -784,7 +800,7 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         uint tokenBefore = IERC20(tokenAddr).balanceOf(address(this));
         uint stakeBefore = IERC20(stakeToken).balanceOf(address(this));
 
-        if (tokenAddr == A0GI) {
+        if (tokenAddr == W0G) {
             require(amount == msg.value,"Lending Interface: amount should == msg.value");
         } else {
             require(msg.value == 0, "Lending Interface: msg.value should == 0");
@@ -792,7 +808,7 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         }
 
         for(uint i = 0; i != times; i++){
-            if (tokenAddr == A0GI) {
+            if (tokenAddr == W0G) {
                 if(stakeToken == gToken) {
                     require(currentAmount <= address(this).balance,"Insufficient balance");
                     // Stake current amount
@@ -830,7 +846,7 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
             }
         }
 
-        if (tokenAddr != A0GI) {
+        if (tokenAddr != W0G) {
             _refundTokenDelta(tokenAddr, tokenBefore);
         }
         _refundTokenDelta(stakeToken, stakeBefore);

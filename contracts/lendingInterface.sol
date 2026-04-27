@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/iLendingManager.sol";
-import "./interfaces/iwA0GI.sol";
+import "./interfaces/iw0G.sol";
 import "./interfaces/islcoracle.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
@@ -16,17 +16,18 @@ import "./interfaces/iDecimals.sol";
 /// @custom:oz-upgrades-unsafe-allow constructor
 contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
     address public lendingManager;
-    address public A0GI;
+    address public W0G;
     address public oracleAddr;
     address public lCoreAddr;
 
     /// @notice Admin address for upgrade authorization
     address public admin;
+    address public pendingAdmin;
 
     using SafeERC20 for IERC20;
 
     /// @dev Storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     /// @dev Disable initializer on implementation contract
     constructor() initializer {}
@@ -34,14 +35,14 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     /// @notice Replaces constructor for proxy deployment
     function initialize(
         address _manager,
-        address _a0gi,
+        address _w0g,
         address _oracle,
         address _core
     ) public initializer {
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         lendingManager = _manager;
-        A0GI = _a0gi;
+        W0G = _w0g;
         oracleAddr = _oracle;
         lCoreAddr = _core;
         admin = msg.sender;
@@ -50,6 +51,21 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     /// @dev Required by UUPSUpgradeable
     function _authorizeUpgrade(address) internal override {
         require(msg.sender == admin, "not admin");
+    }
+
+    function transferAdmin(address _admin) external {
+        require(msg.sender == admin, "not admin");
+        require(_admin != address(0), "Lending Interface: New admin cannot be zero");
+        require(_admin != admin, "Lending Interface: Cannot transfer to current admin");
+        pendingAdmin = _admin;
+    }
+
+    function acceptAdmin(bool _TorF) external {
+        require(msg.sender == pendingAdmin, "Lending Interface: Permission FORBIDDEN");
+        if (_TorF) {
+            admin = pendingAdmin;
+        }
+        pendingAdmin = address(0);
     }
 
     //------------------------------------------------ View ----------------------------------------------------
@@ -647,12 +663,12 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         uint wrappedBefore,
         uint nativeBefore
     ) internal {
-        uint wrappedAfter = IERC20(A0GI).balanceOf(address(this));
+        uint wrappedAfter = IERC20(W0G).balanceOf(address(this));
         if (wrappedAfter > wrappedBefore) {
-            iwA0GI(A0GI).withdraw(wrappedAfter - wrappedBefore);
+            iw0G(W0G).withdraw(wrappedAfter - wrappedBefore);
         }
 
-        if (tokenAddr != A0GI) {
+        if (tokenAddr != W0G) {
             uint tokenAfter = IERC20(tokenAddr).balanceOf(address(this));
             if (tokenAfter > tokenBefore) {
                 IERC20(tokenAddr).safeTransfer(msg.sender, tokenAfter - tokenBefore);
@@ -724,15 +740,15 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     //-----------------------------------------Operation 2 can use 0g---------------------------------------------
     //  Assets Deposit
     function assetsDeposit2(address tokenAddr, uint amount) external payable nonReentrant{
-        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
-        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint tokenBefore = tokenAddr == W0G ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(W0G).balanceOf(address(this));
         uint nativeBefore = address(this).balance - msg.value;
-        if (tokenAddr == A0GI) {
+        if (tokenAddr == W0G) {
             require(
                 amount <= msg.value,
                 "Lending Interface: amount should == msg.value"
             );
-            iwA0GI(A0GI).deposit{value: amount}();
+            iw0G(W0G).deposit{value: amount}();
         } else {
             require(msg.value == 0, "Lending Interface: msg.value should == 0");
             IERC20(tokenAddr).safeTransferFrom(
@@ -752,8 +768,8 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     }
     // Withdrawal of deposits
     function withdrawDeposit2(address tokenAddr, uint amount) external nonReentrant{
-        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
-        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint tokenBefore = tokenAddr == W0G ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(W0G).balanceOf(address(this));
         uint nativeBefore = address(this).balance;
         iLendingManager(lendingManager).withdrawDeposit(
             tokenAddr,
@@ -763,8 +779,8 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     function withdrawDepositMax2(address tokenAddr) external nonReentrant {
-        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
-        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint tokenBefore = tokenAddr == W0G ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(W0G).balanceOf(address(this));
         uint nativeBefore = address(this).balance;
         address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
         uint tokenBalance = IERC20(depositAndLend[0]).balanceOf(
@@ -780,8 +796,8 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     }
     // lend Asset
     function lendAsset2(address tokenAddr, uint amount) external nonReentrant{
-        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
-        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint tokenBefore = tokenAddr == W0G ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(W0G).balanceOf(address(this));
         uint nativeBefore = address(this).balance;
         iLendingManager(lendingManager).lendAsset(
             tokenAddr,
@@ -792,15 +808,15 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     }
     // repay Loan
     function repayLoan2(address tokenAddr, uint amount) external payable nonReentrant{
-        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
-        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint tokenBefore = tokenAddr == W0G ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(W0G).balanceOf(address(this));
         uint nativeBefore = address(this).balance - msg.value;
-        if (tokenAddr == A0GI) {
+        if (tokenAddr == W0G) {
             require(
                 amount <= msg.value,
                 "Lending Interface: amount should == msg.value"
             );
-            iwA0GI(A0GI).deposit{value: amount}();
+            iw0G(W0G).deposit{value: amount}();
         } else {
             require(msg.value == 0, "Lending Interface: msg.value should == 0");
             IERC20(tokenAddr).safeTransferFrom(
@@ -818,8 +834,8 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     function repayLoanMax2(address tokenAddr) external payable nonReentrant {
-        uint tokenBefore = tokenAddr == A0GI ? 0 : IERC20(tokenAddr).balanceOf(address(this));
-        uint wrappedBefore = IERC20(A0GI).balanceOf(address(this));
+        uint tokenBefore = tokenAddr == W0G ? 0 : IERC20(tokenAddr).balanceOf(address(this));
+        uint wrappedBefore = IERC20(W0G).balanceOf(address(this));
         uint nativeBefore = address(this).balance - msg.value;
         address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
         uint tokenBalance = IERC20(depositAndLend[1]).balanceOf(
@@ -829,12 +845,12 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         if(tokenBalance > tokenBackAmount * 1 ether / (10**iDecimals(tokenAddr).decimals())) {
             tokenBackAmount = tokenBackAmount + 1;
         }
-        if (tokenAddr == A0GI) {
+        if (tokenAddr == W0G) {
             require(
                 tokenBackAmount <= msg.value,
                 "Lending Interface: amount should == msg.value"
             );
-            iwA0GI(A0GI).deposit{value: tokenBackAmount}();
+            iw0G(W0G).deposit{value: tokenBackAmount}();
         } else {
             require(msg.value == 0, "Lending Interface: msg.value should == 0");
             IERC20(tokenAddr).safeTransferFrom(
