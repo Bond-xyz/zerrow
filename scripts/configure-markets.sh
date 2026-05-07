@@ -68,12 +68,12 @@ fi
 
 if [ -z "${ASSETS_REGISTRY_PATH:-}" ]; then
   if [ -z "${SHARED_REGISTRY_ROOT:-}" ]; then
-    if [ -d "$PROJECT_ROOT/../bond-shared-registry" ]; then
-      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../bond-shared-registry"
-    elif [ -d "$PROJECT_ROOT/../../bond-shared-registry" ]; then
-      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../../bond-shared-registry"
+    if [ -d "$PROJECT_ROOT/../bond-environments" ]; then
+      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../bond-environments"
+    elif [ -d "$PROJECT_ROOT/../../bond-environments" ]; then
+      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../../bond-environments"
     else
-      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../bond-shared-registry"
+      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../bond-environments"
     fi
   fi
 

@@ -26,7 +26,7 @@ contract ConfigureMarkets is ScriptBase {
         address oracleAddress = vm.envAddress("ORACLE_ADDRESS");
         string memory assetsPath = _envStringOr(
             "ASSETS_REGISTRY_PATH",
-            "../../bond-shared-registry/envs/og-testnet-staging/assets.json"
+            "../../bond-environments/envs/og-testnet-staging/assets.json"
         );
         string memory feedMapPath = _envStringOr(
             "ORACLE_FEED_MAP_PATH",
