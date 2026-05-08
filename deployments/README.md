@@ -32,7 +32,7 @@ Optional deployment overrides:
 
 Market configuration:
 
-- `ASSETS_REGISTRY_PATH`
+- `ASSETS_REGISTRY_PATH` (required, no repo-specific default)
 - `ORACLE_FEED_MAP_PATH`
 
 Admin handoff:

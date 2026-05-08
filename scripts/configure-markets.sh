@@ -11,7 +11,6 @@ preserve_vars=(
   OG_MAINNET_RPC_URL
   BOND_ENV
   DEPLOYMENT_FILE
-  SHARED_REGISTRY_ROOT
   LENDING_MANAGER_ADDRESS
   ORACLE_ADDRESS
   ASSETS_REGISTRY_PATH
@@ -67,21 +66,8 @@ if [ -z "${DEPLOYMENT_FILE:-}" ]; then
 fi
 
 if [ -z "${ASSETS_REGISTRY_PATH:-}" ]; then
-  if [ -z "${SHARED_REGISTRY_ROOT:-}" ]; then
-    if [ -d "$PROJECT_ROOT/../bond-environments" ]; then
-      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../bond-environments"
-    elif [ -d "$PROJECT_ROOT/../../bond-environments" ]; then
-      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../../bond-environments"
-    else
-      SHARED_REGISTRY_ROOT="$PROJECT_ROOT/../bond-environments"
-    fi
-  fi
-
-  if [ "$BOND_ENV" = "prod" ]; then
-    ASSETS_REGISTRY_PATH="$SHARED_REGISTRY_ROOT/envs/og-mainnet-prod/assets.json"
-  else
-    ASSETS_REGISTRY_PATH="$SHARED_REGISTRY_ROOT/envs/og-testnet-staging/assets.json"
-  fi
+  echo "Error: ASSETS_REGISTRY_PATH is required"
+  exit 1
 fi
 
 if [ -z "${ORACLE_FEED_MAP_PATH:-}" ]; then

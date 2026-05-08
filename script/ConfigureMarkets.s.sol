@@ -24,10 +24,7 @@ contract ConfigureMarkets is ScriptBase {
 
         address lendingManagerAddress = vm.envAddress("LENDING_MANAGER_ADDRESS");
         address oracleAddress = vm.envAddress("ORACLE_ADDRESS");
-        string memory assetsPath = _envStringOr(
-            "ASSETS_REGISTRY_PATH",
-            "../../bond-environments/envs/og-testnet-staging/assets.json"
-        );
+        string memory assetsPath = vm.envString("ASSETS_REGISTRY_PATH");
         string memory feedMapPath = _envStringOr(
             "ORACLE_FEED_MAP_PATH",
             "config/redstone-feed-map.og-testnet-staging.example.json"

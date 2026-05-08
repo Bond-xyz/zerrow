@@ -8,8 +8,7 @@ optimizer = true
 optimizer_runs = 200
 fs_permissions = [
     { access = "read-write", path = "./" },
-    { access = "read", path = "../bond-environments" },
-    { access = "read", path = "../../bond-environments" },
+    { access = "read", path = "../../" },
 ]
 remappings = [
     "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
