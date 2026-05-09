@@ -128,6 +128,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                                  uint latestTimeStamp);
     event BadDebtDeduction(address user,uint blockTimestamp);
     event Liquidation(address indexed user, address indexed liquidator, address liquidateToken, address depositToken, uint liquidateAmount, uint seizedAmount);
+    event LicensedAssetsDeregistered(address indexed _asset);
     //------------------------------------------------------------------
 
     /// @dev Disable initializer on implementation contract
@@ -228,6 +229,43 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         normalFloorOfHealthFactor = normal;
         homogeneousFloorOfHealthFactor = homogeneous;
         emit FloorOfHealthFactorSetup( normal, homogeneous);
+    }
+
+    /// @notice Lock or unlock minting on a deposit/loan coin.
+    /// @dev    The lendingManager is the setter on all coins it creates, so only
+    ///         this contract can call mintLockerSetup on them.  Locking the loan
+    ///         coin for an asset prevents any new borrows of that asset while
+    ///         still allowing deposits (supply-only mode).
+    /// @param coinAddr  Address of the depositOrLoanCoin to lock/unlock.
+    /// @param tOF       true = lock (block minting), false = unlock.
+    function coinMintLockerSetup(address coinAddr, bool tOF) external onlySetter {
+        iDepositOrLoanCoin(coinAddr).mintLockerSetup(tOF);
+    }
+
+    /// @notice Fully deregister a licensed asset.
+    /// @dev    Requires zero outstanding deposits AND zero outstanding borrows
+    ///         (both coin totalSupply must be 0) to prevent removing an asset
+    ///         while users still hold positions.  Removes the asset from the
+    ///         licensedAssets mapping, the assetsDepositAndLend mapping, and the
+    ///         assetsSerialNumber array.
+    /// @param _asset  The ERC-20 token address to deregister.
+    function licensedAssetsDeregister(address _asset) external onlySetter {
+        require(licensedAssets[_asset].assetAddr == _asset, "Lending Manager: asset is Not registered!");
+        require(
+            IERC20(assetsDepositAndLend[_asset][0]).totalSupply() == 0
+            && IERC20(assetsDepositAndLend[_asset][1]).totalSupply() == 0,
+            "Lending Manager: Outstanding positions exist"
+        );
+        delete licensedAssets[_asset];
+        delete assetsDepositAndLend[_asset];
+        for (uint i = 0; i < assetsSerialNumber.length; i++) {
+            if (assetsSerialNumber[i] == _asset) {
+                assetsSerialNumber[i] = assetsSerialNumber[assetsSerialNumber.length - 1];
+                assetsSerialNumber.pop();
+                break;
+            }
+        }
+        emit LicensedAssetsDeregistered(_asset);
     }
 
     function licensedAssetsRegister(address _asset,

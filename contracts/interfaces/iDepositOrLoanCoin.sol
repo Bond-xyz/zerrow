@@ -3,9 +3,10 @@
 
 pragma solidity 0.8.6;
 
-interface iDepositOrLoanCoin{ 
+interface iDepositOrLoanCoin{
     function mintCoin(address _account,uint256 _value) external;
     function burnCoin(address _account,uint256 _value) external;
     function balanceOf(address account) external view returns (uint);
     function totalSupply() external view returns (uint);
+    function mintLockerSetup(bool tOF) external;
 }
