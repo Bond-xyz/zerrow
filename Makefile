@@ -3,7 +3,7 @@
 -include .env
 export
 
-.PHONY: build test deploy configure-markets handoff-admin
+.PHONY: build test deploy configure-markets handoff-admin upgrade
 
 build:
 	forge build
@@ -19,3 +19,6 @@ configure-markets:
 
 handoff-admin:
 	./scripts/handoff-admin.sh
+
+upgrade:
+	./scripts/upgrade-contract.sh $(TARGET)
