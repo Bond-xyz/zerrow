@@ -69,7 +69,7 @@ if [ ! -f "$DEPLOYMENT_FILE" ]; then
   exit 1
 fi
 
-DELAY_DISPLAY="${TIMELOCK_DELAY:-172800}"
+DELAY_DISPLAY="${TIMELOCK_DELAY:-86400}"
 DELAY_HOURS=$(( DELAY_DISPLAY / 3600 ))
 
 echo "==========================================="

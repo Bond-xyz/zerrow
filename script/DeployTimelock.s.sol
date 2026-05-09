@@ -49,7 +49,7 @@ contract DeployTimelock is ScriptBase {
     function _loadConfig() internal view returns (Config memory cfg) {
         cfg.multisig = vm.envAddress("MULTISIG_ADDRESS");
         cfg.guardian = vm.envAddress("GUARDIAN_ADDRESS");
-        cfg.delay = _envUintOr("TIMELOCK_DELAY", 48 hours);
+        cfg.delay = _envUintOr("TIMELOCK_DELAY", 24 hours);
     }
 
     function _loadProxies() internal view returns (Proxies memory p) {
