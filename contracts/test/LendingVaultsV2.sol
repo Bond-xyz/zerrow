@@ -14,6 +14,7 @@ contract LendingVaultsV2 is Initializable, UUPSUpgradeable, ReentrancyGuardUpgra
     address public setter;
     address newsetter;
     address public rebalancer;
+    address public guardian;
 
     using SafeERC20 for IERC20;
 
@@ -21,7 +22,7 @@ contract LendingVaultsV2 is Initializable, UUPSUpgradeable, ReentrancyGuardUpgra
     uint256 public maxWithdrawPerBlock;
 
     /// @dev Storage gap reduced by 1
-    uint256[49] private __gap;
+    uint256[48] private __gap;
 
     modifier onlySetter() {
         require(msg.sender == setter, 'Lending Vault: Only Setter Use');

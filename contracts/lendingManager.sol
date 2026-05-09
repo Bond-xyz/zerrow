@@ -86,8 +86,10 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     address public riskIsolationModeAcceptAssets;
     mapping(address => uint8) public userMode;
 
+    address public guardian;
+
     /// @dev Storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     //----------------------------modifier ----------------------------
     modifier onlySetter() {
@@ -147,7 +149,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     /// @notice Pause the contract
-    function pause() external onlySetter {
+    function pause() external {
+        require(msg.sender == setter || msg.sender == guardian, "not setter or guardian");
         _pause();
     }
 
@@ -158,6 +161,10 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function setFlashLoanFeesAddress(address _flashLoanFeesAddress) external onlySetter{
         flashLoanFeesAddress = _flashLoanFeesAddress;
+    }
+
+    function setGuardian(address _guardian) external onlySetter {
+        guardian = _guardian;
     }
 
     function transferSetter(address _set) external onlySetter{

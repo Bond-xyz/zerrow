@@ -742,7 +742,7 @@ contract PausabilityTest is TestBase {
 
     function test_NonSetterCannotPause() public {
         vm.prank(nonSetter);
-        vm.expectRevert("Lending Manager: Only Setter Use");
+        vm.expectRevert("not setter or guardian");
         manager.pause();
     }
 

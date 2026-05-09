@@ -3,7 +3,7 @@
 -include .env
 export
 
-.PHONY: build test deploy configure-markets handoff-admin upgrade
+.PHONY: build test deploy configure-markets handoff-admin upgrade deploy-timelock
 
 build:
 	forge build
@@ -22,3 +22,6 @@ handoff-admin:
 
 upgrade:
 	./scripts/upgrade-contract.sh $(TARGET)
+
+deploy-timelock:
+	./scripts/deploy-timelock.sh
