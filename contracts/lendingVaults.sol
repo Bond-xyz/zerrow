@@ -19,11 +19,12 @@ contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrade
     address public setter;
     address newsetter;
     address public rebalancer;
+    address public guardian;
 
     using SafeERC20 for IERC20;
 
     /// @dev Storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     /// @dev Disable initializer on implementation contract
     constructor() initializer {}
@@ -42,13 +43,18 @@ contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrade
     }
 
     /// @notice Pause the contract
-    function pause() external onlySetter {
+    function pause() external {
+        require(msg.sender == setter || msg.sender == guardian, "not setter or guardian");
         _pause();
     }
 
     /// @notice Unpause the contract
     function unpause() external onlySetter {
         _unpause();
+    }
+
+    function setGuardian(address _guardian) external onlySetter {
+        guardian = _guardian;
     }
 
     //----------------------------modifier ----------------------------

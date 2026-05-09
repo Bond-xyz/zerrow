@@ -72,11 +72,13 @@ contract LendingManagerV2 is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
     address public riskIsolationModeAcceptAssets;
     mapping(address => uint8) public userMode;
 
+    address public guardian;
+
     // --- V2 NEW STATE: uses one slot from __gap ---
     uint256 public protocolFeeRate;
 
     /// @dev Storage gap reduced by 1 for the new state variable
-    uint256[49] private __gap;
+    uint256[48] private __gap;
 
     modifier onlySetter() {
         require(msg.sender == setter, 'Lending Manager: Only Setter Use');
