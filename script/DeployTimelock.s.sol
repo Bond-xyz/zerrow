@@ -9,6 +9,7 @@ import "../contracts/lendingVaults.sol";
 import "../contracts/zerrowOracleRedstone.sol";
 import "../contracts/coinFactory.sol";
 import "../contracts/lendingInterface.sol";
+import "../contracts/TimelockCancelGuardian.sol";
 
 contract DeployTimelock is ScriptBase {
     struct Config {
@@ -35,6 +36,12 @@ contract DeployTimelock is ScriptBase {
         vm.startBroadcast(deployerKey);
 
         TimelockController timelock = _deployTimelock(cfg);
+
+        TimelockCancelGuardian cancelGuardian = new TimelockCancelGuardian(
+            timelock,
+            cfg.guardian
+        );
+        timelock.grantRole(timelock.PROPOSER_ROLE(), address(cancelGuardian));
 
         _setGuardians(p, cfg.guardian);
         _initiateTransfers(p, address(timelock));
