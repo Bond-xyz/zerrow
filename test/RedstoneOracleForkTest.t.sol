@@ -29,6 +29,7 @@ contract RedstoneOracleForkTest is TestBase {
     address constant FEED_USDT = 0xED2B1ca5D7E246f615c2291De309643D41FeC97e;
     address constant FEED_USDC = 0xc44be6D00307c3565FDf753e852Fc003036cBc13;
     address constant FEED_WBTC = 0x22d47686b3AEC9068768f84EFD8Ce2637a347B0A;
+    address constant FEED_0G   = 0xFd7457B6f09990243Bf8E4C6C956EB909C0E6417;
 
     // ── Protocol contracts ──
     zerrowOracleRedstone public oracle;
@@ -218,6 +219,15 @@ contract RedstoneOracleForkTest is TestBase {
         emit log_named_uint("WBTC price (18 dec USD)", price);
     }
 
+    function test_0G_PriceIsReasonable() public {
+        oracle.setTokenFeed(address(0xA0A0), FEED_0G);
+        uint price = oracle.getPrice(address(0xA0A0));
+        // 0G should be nonzero and below a broad sanity cap.
+        assertGt(price, 0.001 ether, "0G price too low");
+        assertLt(price, 100 ether, "0G price too high");
+        emit log_named_uint("0G price (18 dec USD)", price);
+    }
+
     function test_UnmappedTokenReverts() public {
         vm.expectRevert("Zerrow Oracle: No feed for token");
         oracle.getPrice(address(0x9999));
@@ -235,8 +245,9 @@ contract RedstoneOracleForkTest is TestBase {
     }
 
     function test_FreshPriceDoesNotRevert() public {
-        // Warp 6 hours — still within 7h window
-        vm.warp(block.timestamp + 6 hours);
+        (, uint256 updatedAt, ) = oracle.getPriceRaw(address(tokenETH));
+        vm.warp(updatedAt + oracle.maxStaleness() - 1);
+
         uint price = oracle.getPrice(address(tokenETH));
         assertGt(price, 0, "Price should be non-zero");
     }
