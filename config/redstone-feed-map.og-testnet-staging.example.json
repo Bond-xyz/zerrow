@@ -1,11 +1,10 @@
 {
-  "description": "Official RedStone explorer feeds for 0G Galileo testnet. RedStone is working on the Galileo 0G/USD feed; replace the pending 0G feed address once published so W0G can be priced from native 0G.",
+  "description": "Official RedStone explorer feeds for 0G Galileo testnet as of 2026-05-11.",
   "feedsCount": 5,
   "feeds": [
     {
       "oracleFeedId": "0G",
-      "feed": "0x0000000000000000000000000000000000000000",
-      "status": "pending_redstone_galileo_0g_usd"
+      "feed": "0xFd7457B6f09990243Bf8E4C6C956EB909C0E6417"
     },
     {
       "oracleFeedId": "USDC",

@@ -55,5 +55,5 @@ The deploy script writes `deployments/og-testnet-staging.json` for testnet stagi
 
 - Deployments intentionally start with the deployer key as the temporary protocol admin, because the deployer must finish contract wiring and market configuration before handing control to the long-lived admin.
 - `lendingInterface` and `lstInterface` now support explicit admin handoff, so their upgrade authority can be transferred during the final handoff step instead of remaining stuck with the deployer.
-- The example Redstone feed maps under `config/` are templates. Replace any zero or pending feed addresses before broadcasting market configuration on a real environment.
-- The Galileo feed map assumes RedStone will publish a `0G/USD` feed for testnet. Once that address is available, configure `oracleFeedId: "0G"` with the published feed so `W0G` can be priced from native `0G`.
+- The example Redstone feed maps under `config/` are templates. Confirm feed addresses against the RedStone explorer before broadcasting market configuration on a real environment.
+- The Galileo feed map includes the RedStone `0G/USD` testnet feed, so assets with `oracleFeedId: "0G"` can be priced from native `0G`.
