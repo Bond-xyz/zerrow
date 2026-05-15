@@ -12,6 +12,7 @@ import "./interfaces/islcoracle.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
 import "./interfaces/iDecimals.sol";
+import "./LendingInterfaceLib.sol";
 
 /// @custom:oz-upgrades-unsafe-allow constructor
 contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
@@ -265,7 +266,7 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             );
         }
     }
-    // operator mode:  assetsDeposit 0, withdrawDeposit 1, lendAsset 2, repayLoan 3
+
     function usersHealthFactorAndInterestEstimate(
         address user,
         address token,
@@ -279,89 +280,9 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
                  uint _amountDeposit,
                  uint _amountLending)
     {
-        uint tokenPrice = iSlcOracle(oracleAddr).getPrice(token);
-        uint modeLTV;
-        uint8 _userMode = iLendingManager(lendingManager).userMode(user);
-        if(_userMode>1){
-            modeLTV = licensedAssets(token).homogeneousModeLTV;
-        }else{
-            modeLTV = licensedAssets(token).maximumLTV;
-        }
-
-        (_amountDeposit, _amountLending) = iLendingManager(lendingManager)
-            .userDepositAndLendingValue(user);
-        if (operator == 0) {
-            _amountDeposit +=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 1) {
-            _amountDeposit -=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 2) {
-            _amountLending +=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 3) {
-            _amountLending -=
-                (amount * tokenPrice) /
-                1 ether;
-        }
-        if (_amountLending > 0) {
-            userHealthFactor = (_amountDeposit * 1 ether) / _amountLending;
-        } else if (_amountDeposit >= 0) {
-            userHealthFactor = 1000 ether;
-        } else {
-            userHealthFactor = 0 ether;
-        }
-        if (userHealthFactor > 1000 ether) {
-            userHealthFactor = 1000 ether;
-        }
-        address[2] memory depositAndLend = iLendingManager(lendingManager)
-            .assetsDepositAndLendAddrs(token);
-        uint lendingRatio;
-        _amountDeposit = iDepositOrLoanCoin(depositAndLend[0]).totalSupply();
-        _amountLending = iDepositOrLoanCoin(depositAndLend[1]).totalSupply();
-        uint upperLimit = UPPER_SYSTEM_LIMIT() ;
-        if (iDepositOrLoanCoin(depositAndLend[0]).totalSupply() > 0) {
-            if (operator == 0) {
-                _amountDeposit += amount * modeLTV / upperLimit;
-            } else if (operator == 1) {
-                if(_amountDeposit > amount * modeLTV / upperLimit){
-                    _amountDeposit -= amount * modeLTV / upperLimit;
-                }else{
-                    _amountDeposit = 0;
-                }
-            } else if (operator == 2) {
-                _amountLending += amount;
-            } else if (operator == 3) {
-                if(_amountLending > amount){
-                    _amountLending -= amount;
-                }else{
-                    _amountLending = 0;
-                }
-            }
-            if (_amountDeposit > 0) {
-                lendingRatio = (_amountLending * upperLimit) / _amountDeposit;
-            }else{
-                lendingRatio = 0;
-            }
-        } else {
-            lendingRatio = 0;
-        }
-
-        if (lendingRatio > upperLimit) {
-            lendingRatio = upperLimit;
-        }
-        newInterest[0] = iLendingCoreAlgorithm(lCoreAddr).depositInterestRate(
-            token,
-            lendingRatio
-        );
-        uint reserveFactor = assetsReserveFactor(token);
-        newInterest[1] = iLendingCoreAlgorithm(lCoreAddr).lendingInterestRate(
-            token,
-            lendingRatio,
-            reserveFactor
+        return LendingInterfaceLib.computeHealthFactorEstimate(
+            user, token, amount, operator,
+            lendingManager, oracleAddr, lCoreAddr
         );
     }
 
@@ -457,159 +378,13 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             uint tokenLiquidateRatio
         )
     {
-        uint[3] memory tempRustFactor;
-        uint8 _mode;
-        address _userRIMSetAssets;
-        (_mode, _userRIMSetAssets) = userMode(user);
-
-        address[] memory tokens;
-        uint[] memory _amountDeposit;
-        uint[] memory _amountLending;
-        iLendingManager.licensedAsset memory usefulAsset;
-        uint[] memory assetPrice = licensedAssetPrice();
-        (tokens, _amountDeposit, _amountLending) = userAssetOverview(user);
-        if (_mode == 1) {
-            for (uint i = 0; i != tokens.length; i++) {
-                if (tokens[i] == _userRIMSetAssets && _amountDeposit[i] > 0) {
-                    userValueUsedRatio =
-                        (((userRIMAssetsLendingNetAmount(
-                            user,
-                            _userRIMSetAssets
-                        ) * 10000) / _amountDeposit[i]) * 1 ether) /
-                        assetPrice[i];
-                    usefulAsset = licensedAssets(tokens[i]);
-                    userMaxUsedRatio =
-                        (usefulAsset.maximumLTV * 1 ether) /
-                        normalFloorOfHealthFactor();
-                    tokenLiquidateRatio = usefulAsset.maximumLTV;
-                    break;
-                }
-            }
-        } else if (_mode == 0) {
-            for (uint i = 0; i != tokens.length; i++) {
-                usefulAsset = licensedAssets(tokens[i]);
-                if (usefulAsset.lendingModeNum != 1) {
-                    tempRustFactor[1] +=
-                        (_amountDeposit[i] * assetPrice[i]) /
-                        1 ether;
-                    tempRustFactor[2] +=
-                        (_amountLending[i] * assetPrice[i]) /
-                        1 ether;
-                    userMaxUsedRatio +=
-                        (_amountDeposit[i] *
-                            assetPrice[i] *
-                            usefulAsset.maximumLTV) /
-                        normalFloorOfHealthFactor() /
-                        10000;
-                    tokenLiquidateRatio +=
-                        (((_amountDeposit[i] * assetPrice[i]) / 1 ether) *
-                            usefulAsset.maximumLTV) /
-                        10000;
-                }
-            }
-            if (tempRustFactor[1] > 0) {
-                userValueUsedRatio =
-                    (tempRustFactor[2] * 10000) /
-                    tempRustFactor[1];
-                userMaxUsedRatio =
-                    (userMaxUsedRatio * 10000) /
-                    tempRustFactor[1];
-                tokenLiquidateRatio =
-                    (tokenLiquidateRatio * 10000) /
-                    tempRustFactor[1];
-            } else {
-                userValueUsedRatio = 0;
-                userMaxUsedRatio = 0;
-                tokenLiquidateRatio = 0;
-            }
-        } else if (_mode > 1) {
-            for (uint i = 0; i != tokens.length; i++) {
-                usefulAsset = licensedAssets(tokens[i]);
-                if (usefulAsset.lendingModeNum == _mode) {
-                    tempRustFactor[1] +=
-                        (_amountDeposit[i] * assetPrice[i]) /
-                        1 ether;
-                    tempRustFactor[2] +=
-                        (_amountLending[i] * assetPrice[i]) /
-                        1 ether;
-                    userMaxUsedRatio +=
-                        (_amountDeposit[i] *
-                            assetPrice[i] *
-                            usefulAsset.maximumLTV) /
-                        homogeneousFloorOfHealthFactor() /
-                        10000;
-                    tokenLiquidateRatio +=
-                        (((_amountDeposit[i] * assetPrice[i]) / 1 ether) *
-                            usefulAsset.maximumLTV) /
-                        10000;
-                }
-            }
-            if (tempRustFactor[1] > 0) {
-                userValueUsedRatio =
-                    (tempRustFactor[2] * 10000) /
-                    tempRustFactor[1];
-                userMaxUsedRatio =
-                    (userMaxUsedRatio * 10000) /
-                    tempRustFactor[1];
-                tokenLiquidateRatio =
-                    (tokenLiquidateRatio * 10000) /
-                    tempRustFactor[1];
-            } else {
-                userValueUsedRatio = 0;
-                userMaxUsedRatio = 0;
-                tokenLiquidateRatio = 0;
-            }
-        }
+        return LendingInterfaceLib.computeUsersRiskDetails(user, lendingManager, oracleAddr);
     }
 
     function userProfile(
         address user
     ) public view returns (int netWorth, int netApy) {
-        uint[5] memory tempRustFactor;
-        uint8 _mode;
-        address _userRIMSetAssets;
-        int fullWorth;
-        (_mode, _userRIMSetAssets) = userMode(user);
-
-        address[] memory tokens;
-        uint[] memory _amountDeposit;
-        uint[] memory _amountLending;
-        uint[] memory assetPrice = licensedAssetPrice();
-        (tokens, _amountDeposit, _amountLending) = userAssetOverview(user);
-        uint depositInterest;
-        uint lendingInterest;
-        for (uint i = 0; i != tokens.length; i++) {
-            tempRustFactor[0] = tempRustFactor[0] + _amountDeposit[i];
-            tempRustFactor[1] =
-                tempRustFactor[1] +
-                (_amountDeposit[i] * assetPrice[i]) /
-                1 ether;
-            tempRustFactor[2] =
-                tempRustFactor[2] +
-                (_amountLending[i] * assetPrice[i]) /
-                1 ether;
-            (
-                ,
-                ,
-                depositInterest,
-                lendingInterest
-            ) = assetsTimeDependentParameter(tokens[i]);
-            tempRustFactor[3] =
-                tempRustFactor[3] +
-                (depositInterest * _amountDeposit[i] * assetPrice[i]) /
-                1 ether;
-            tempRustFactor[4] =
-                tempRustFactor[4] +
-                (lendingInterest * _amountLending[i] * assetPrice[i]) /
-                1 ether;
-        }
-        netWorth = netWorth + int(tempRustFactor[1]) - int(tempRustFactor[2]);
-        fullWorth = fullWorth + int(tempRustFactor[1]);
-        if (tempRustFactor[0] == 0) {
-            netApy = 0;
-        } else {
-            netApy = (int(tempRustFactor[3]) - int(tempRustFactor[4])) / fullWorth;
-        }
+        return LendingInterfaceLib.computeUserProfile(user, lendingManager, oracleAddr);
     }
 
     function generalParametersOfAllAssets()
@@ -625,28 +400,7 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             uint8[] memory tokenMode
         )
     {
-        (tokens, , ) = iLendingManager(lendingManager).userAssetOverview(
-            address(0)
-        );
-        totalSupplied = new uint[](tokens.length);
-        totalBorrowed = new uint[](tokens.length);
-        supplyApy = new uint[](tokens.length);
-        borrowApy = new uint[](tokens.length);
-        assetsPrice = licensedAssetPrice();
-        tokenMode = new uint8[](tokens.length);
-        iLendingManager.licensedAsset memory usefulAsset;
-        uint[2] memory tempAmounts;
-
-        for (uint i = 0; i != tokens.length; i++) {
-            (, , supplyApy[i], borrowApy[i]) = assetsTimeDependentParameter(
-                tokens[i]
-            );
-            usefulAsset = licensedAssets(tokens[i]);
-            tokenMode[i] = usefulAsset.lendingModeNum;
-            tempAmounts = assetsDepositAndLendAmount(tokens[i]);
-            totalSupplied[i] = tempAmounts[0];
-            totalBorrowed[i] = tempAmounts[1];
-        }
+        return LendingInterfaceLib.computeGeneralParameters(lendingManager, oracleAddr);
     }
 
     //------------------------------------------------Operation----------------------------------------------------
