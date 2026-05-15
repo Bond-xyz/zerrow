@@ -239,13 +239,13 @@ contract CoinMintLockerAccessControlTest is MintLockAndDeregisterTestBase {
 
     function test_nonSetter_cannot_call_coinMintLockerSetup() public {
         vm.prank(nonSetter);
-        vm.expectRevert("Lending Manager: Only Setter Use");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OnlySetter.selector));
         manager.coinMintLockerSetup(tokenA_loanCoin, true);
     }
 
     function test_random_user_cannot_call_coinMintLockerSetup() public {
         vm.prank(user1);
-        vm.expectRevert("Lending Manager: Only Setter Use");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OnlySetter.selector));
         manager.coinMintLockerSetup(tokenA_loanCoin, true);
     }
 
@@ -409,7 +409,7 @@ contract DeregisterAccessControlTest is MintLockAndDeregisterTestBase {
 
     function test_nonSetter_cannot_deregister() public {
         vm.prank(nonSetter);
-        vm.expectRevert("Lending Manager: Only Setter Use");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OnlySetter.selector));
         manager.licensedAssetsDeregister(address(tokenA));
     }
 
@@ -417,7 +417,7 @@ contract DeregisterAccessControlTest is MintLockAndDeregisterTestBase {
         address fakeToken = address(0xDEAD);
 
         vm.prank(setter);
-        vm.expectRevert("Lending Manager: asset is Not registered!");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.AssetNotRegistered.selector));
         manager.licensedAssetsDeregister(fakeToken);
     }
 }
@@ -500,7 +500,7 @@ contract DeregisterFunctionalTest is MintLockAndDeregisterTestBase {
 
         // Attempt to deregister — should fail
         vm.prank(setter);
-        vm.expectRevert("Lending Manager: Outstanding positions exist");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OutstandingPositions.selector));
         manager.licensedAssetsDeregister(address(tokenA));
     }
 
@@ -529,7 +529,7 @@ contract DeregisterFunctionalTest is MintLockAndDeregisterTestBase {
 
         // Attempt to deregister — should fail
         vm.prank(setter);
-        vm.expectRevert("Lending Manager: Outstanding positions exist");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OutstandingPositions.selector));
         manager.licensedAssetsDeregister(address(tokenA));
     }
 
@@ -544,7 +544,7 @@ contract DeregisterFunctionalTest is MintLockAndDeregisterTestBase {
         vm.prank(user1);
         manager.setInterfaceApproval(true);
 
-        vm.expectRevert("Lending Manager: Token not licensed");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.TokenNotLicensed.selector));
         manager.assetsDeposit(address(tokenA), 100 ether, user1);
     }
 
@@ -557,7 +557,7 @@ contract DeregisterFunctionalTest is MintLockAndDeregisterTestBase {
         manager.setInterfaceApproval(true);
 
         // Attempting to borrow tokenA should fail
-        vm.expectRevert("Lending Manager: Token not licensed");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.TokenNotLicensed.selector));
         manager.lendAsset(address(tokenA), 10 ether, user1);
     }
 
@@ -565,7 +565,7 @@ contract DeregisterFunctionalTest is MintLockAndDeregisterTestBase {
         vm.startPrank(setter);
         manager.licensedAssetsDeregister(address(tokenA));
 
-        vm.expectRevert("Lending Manager: asset is Not registered!");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.AssetNotRegistered.selector));
         manager.licensedAssetsDeregister(address(tokenA));
         vm.stopPrank();
     }
@@ -708,7 +708,7 @@ contract VulnerabilityTests is MintLockAndDeregisterTestBase {
 
         // Attempt deregister — should fail because deposit coin has supply
         vm.prank(setter);
-        vm.expectRevert("Lending Manager: Outstanding positions exist");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OutstandingPositions.selector));
         manager.licensedAssetsDeregister(address(tokenA));
     }
 }

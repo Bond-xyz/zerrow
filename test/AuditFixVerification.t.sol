@@ -549,7 +549,7 @@ contract AuditFixVerification is TestBase {
         feedA.setPrice(200e8);
         assertLt(manager.viewUsersHealthFactor(user1), 1 ether);
 
-        vm.expectRevert("Lending Manager: Self liquidation not allowed");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.SelfLiquidation.selector));
         vm.prank(user1);
         manager.tokenLiquidate(user1, address(tokenB), 1_000e6, address(tokenA));
     }
@@ -644,13 +644,13 @@ contract AuditFixVerification is TestBase {
     }
 
     function test_UserModeValidationRejectsUnknownModesAndUnexpectedRIMAssets() public {
-        vm.expectRevert("Lending Manager: Unknown mode");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.UnknownMode.selector));
         manager.userModeSetting(2, address(0), user1);
 
-        vm.expectRevert("Lending Manager: RIM asset only allowed in mode 1");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.RIMAssetOnlyInMode1.selector));
         manager.userModeSetting(0, address(tokenA), user1);
 
-        vm.expectRevert("Lending Manager: Mode 1 Need a RIMAsset.");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.Mode1NeedsRIMAsset.selector));
         manager.userModeSetting(1, address(tokenA), user1);
     }
 
@@ -674,7 +674,7 @@ contract AuditFixVerification is TestBase {
         // Verify the manager contract inherits ReentrancyGuardUpgradeable
         // by checking tokenLiquidate reverts on zero-amount (not reentrancy,
         // but confirms the function is accessible and guarded).
-        vm.expectRevert("Lending Manager: Cant Pledge 0 amount");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.ZeroAmount.selector));
         manager.tokenLiquidate(user1, address(tokenA), 0, address(tokenB));
 
         // Verify executeFlashLoan has nonReentrant
