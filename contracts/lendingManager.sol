@@ -258,6 +258,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         );
         delete licensedAssets[_asset];
         delete assetsDepositAndLend[_asset];
+        delete assetInfos[_asset];
         for (uint i = 0; i < assetsSerialNumber.length; i++) {
             if (assetsSerialNumber[i] == _asset) {
                 assetsSerialNumber[i] = assetsSerialNumber[assetsSerialNumber.length - 1];
