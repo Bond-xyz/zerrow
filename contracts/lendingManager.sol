@@ -515,6 +515,23 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function _assetsValueUpdate(address token) internal returns(uint[2] memory latestInterest){
         require(assetInfos[token].latestTimeStamp == block.timestamp,"Lending Manager: Only be uesd after beforeUpdate");
+
+        // When both deposit and loan supplies are zero the market is idle.
+        // Reset coin values and timestamp to baseline so the next deposit
+        // does not apply elapsed idle time against stale rate data.
+        if (IERC20(assetsDepositAndLend[token][0]).totalSupply() == 0
+            && IERC20(assetsDepositAndLend[token][1]).totalSupply() == 0) {
+            assetInfos[token].latestDepositCoinValue = 1 ether;
+            assetInfos[token].latestLendingCoinValue = 1 ether;
+            assetInfos[token].latestTimeStamp = block.timestamp;
+            assetInfos[token].latestDepositInterest = 0;
+            assetInfos[token].latestLendingInterest = 0;
+            latestInterest[0] = 0;
+            latestInterest[1] = 0;
+            emit DepositAndLoanInterest(token, 0, 0, block.timestamp);
+            return latestInterest;
+        }
+
         latestInterest = iLendingCoreAlgorithm(coreAlgorithm).assetsValueUpdate(token);
         assetInfos[token].latestDepositInterest = latestInterest[0];
         assetInfos[token].latestLendingInterest = latestInterest[1];
