@@ -608,7 +608,11 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         require(VaultTokensAmount(tokenAddr) >= amountNormalize,"Lending Manager: Vault Token amount NOT enough");
         require(amountTokenMax >= amountNormalize,"Lending Manager: User Token amount NOT enough");
         if(amountTokenMax - amountNormalize < 1 ether / (10**iDecimals(tokenAddr).decimals())) {
-            amountNormalize = amountTokenMax;
+            // Dust remaining is less than 1 raw unit.
+            // Only burn the normalized equivalent of the raw amount actually transferred,
+            // so we don't burn more value than the user receives.
+            uint rawEquivalentNormalized = amount * 1 ether / (10**iDecimals(tokenAddr).decimals());
+            amountNormalize = rawEquivalentNormalized;
         }
 
         iLendingVaults(lendingVault).vaultsERC20Approve(tokenAddr, amount);
