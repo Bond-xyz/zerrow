@@ -471,10 +471,12 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         if (_mode == 1) {
             for (uint i = 0; i != tokens.length; i++) {
                 if (tokens[i] == _userRIMSetAssets && _amountDeposit[i] > 0) {
+                    // RIM debt is stored under the borrow-asset key (riskIsolationModeAcceptAssets),
+                    // not the collateral-asset key (_userRIMSetAssets).
                     userValueUsedRatio =
                         (((userRIMAssetsLendingNetAmount(
                             user,
-                            _userRIMSetAssets
+                            iLendingManager(lendingManager).riskIsolationModeAcceptAssets()
                         ) * 10000) / _amountDeposit[i]) * 1 ether) /
                         assetPrice[i];
                     usefulAsset = licensedAssets(tokens[i]);
