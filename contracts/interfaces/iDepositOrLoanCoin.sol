@@ -9,4 +9,6 @@ interface iDepositOrLoanCoin{
     function balanceOf(address account) external view returns (uint);
     function totalSupply() external view returns (uint);
     function mintLockerSetup(bool tOF) external;
+    function rewardContractSetup(address _rewardContract) external;
+    function transferSetter(address _set) external;
 }
