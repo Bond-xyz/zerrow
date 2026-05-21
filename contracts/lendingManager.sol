@@ -534,8 +534,10 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                 continue;
             }
 
+            _beforeUpdate(token);
             slcUnsecuredIssuancesAmount += badDebtAmount * iSlcOracle(oracleAddr).getPrice(token) / 1 ether;
             iDepositOrLoanCoin(loanCoin).burnCoin(user, badDebtAmount);
+            _assetsValueUpdate(token);
         }
 
         emit BadDebtDeduction(user, block.timestamp);
