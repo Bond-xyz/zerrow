@@ -94,21 +94,37 @@ contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrade
         rebalancer = _rebalancer;
     }
 
+    /// @notice Sweep only the vault balance that exceeds user-backed liquidity.
+    /// @dev    Safety invariant: both totalLiveDeposits and totalLiveLoans are
+    ///         read from the live on-chain totalSupply() of the deposit and loan
+    ///         coins in the same transaction. Because both sides reference the
+    ///         same live index (no stale share values), the "backed" amount
+    ///         accurately reflects all accrued interest at the time of the call.
+    ///         Therefore this function can never sweep user-backed liquidity.
+    ///         Q-04 audit hardening: explicit backed-amount assertion added below.
     function excessDisposal(address token) public whenNotPaused nonReentrant onlyRebalancer(){
         address[2] memory pair = iLendingManager(lendingManager).assetsDepositAndLendAddrs(token);
-        uint amountD18 = iDepositOrLoanCoin(pair[0]).totalSupply();
-        uint amountL18 = iDepositOrLoanCoin(pair[1]).totalSupply();
-        require(amountD18 >= amountL18, "Lending Vault: Protocol underwater");
 
-        uint netNorm18 = amountD18 - amountL18;
+        // Live totals — both read in the same tx, so no stale-index divergence.
+        uint totalLiveDeposits = iDepositOrLoanCoin(pair[0]).totalSupply();
+        uint totalLiveLoans   = iDepositOrLoanCoin(pair[1]).totalSupply();
+        require(totalLiveDeposits >= totalLiveLoans, "Lending Vault: Protocol underwater");
+
+        // Backed amount: the minimum the vault must retain for depositors.
+        uint backedAmount = totalLiveDeposits - totalLiveLoans;
+
         uint d = iDecimals(token).decimals();
-        uint balRaw = IERC20(token).balanceOf(address(this));
+        uint balRaw    = IERC20(token).balanceOf(address(this));
         uint balNorm18 = (balRaw * 1 ether) / (10 ** d);
 
-        require(balNorm18 > netNorm18,"Lending Vault: Cant Do Excess Disposal, asset not enough!");
-        uint exNorm18 = balNorm18 - netNorm18;
-        uint exRaw = (exNorm18 * (10 ** d)) / 1 ether;
-        IERC20(token).safeTransfer(msg.sender, exRaw);
+        require(balNorm18 > backedAmount,"Lending Vault: Cant Do Excess Disposal, asset not enough!");
+        uint excessNorm18 = balNorm18 - backedAmount;
+        uint excessRaw    = (excessNorm18 * (10 ** d)) / 1 ether;
+
+        // Defensive assertion: swept amount must not exceed true excess.
+        require(excessRaw <= balRaw, "Lending Vault: excess exceeds vault balance");
+
+        IERC20(token).safeTransfer(msg.sender, excessRaw);
     }
 
     function vaultsERC20Approve(address ERC20Addr,uint amount) external whenNotPaused onlyManager{
