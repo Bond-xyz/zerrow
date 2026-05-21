@@ -433,14 +433,18 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function _userTotalLendingValue(address _user) internal view returns(uint values){
         for(uint i=0;i<assetsSerialNumber.length;i++){
-            values += IERC20(assetsDepositAndLend[assetsSerialNumber[i]][1]).balanceOf(_user)
+            uint loanBal = IERC20(assetsDepositAndLend[assetsSerialNumber[i]][1]).balanceOf(_user);
+            if (loanBal == 0) continue;
+            values += loanBal
             * iSlcOracle(oracleAddr).getPrice(assetsSerialNumber[i]) / 1 ether;
         }
     }
 
     function _userTotalDepositValue(address _user) internal view returns(uint values){
         for(uint i=0;i!=assetsSerialNumber.length;i++){
-            values += IERC20(assetsDepositAndLend[assetsSerialNumber[i]][0]).balanceOf(_user)
+            uint depositBal = IERC20(assetsDepositAndLend[assetsSerialNumber[i]][0]).balanceOf(_user);
+            if (depositBal == 0) continue;
+            values += depositBal
             * iSlcOracle(oracleAddr).getPrice(assetsSerialNumber[i]) / 1 ether;
         }
     }
@@ -448,17 +452,20 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     function userDepositAndLendingValue(address user) public view returns(uint _amountDeposit,uint _amountLending){
         uint tempgetprice;
         for(uint i=0;i!=assetsSerialNumber.length;i++){
+            uint depositBal = iDepositOrLoanCoin(assetsDepositAndLend[assetsSerialNumber[i]][0]).balanceOf(user);
+            uint loanBal = iDepositOrLoanCoin(assetsDepositAndLend[assetsSerialNumber[i]][1]).balanceOf(user);
+            if (depositBal == 0 && loanBal == 0) continue;
             tempgetprice = iSlcOracle(oracleAddr).getPrice(assetsSerialNumber[i]);
             if(userMode[user]>1){
-                    _amountDeposit += iDepositOrLoanCoin(assetsDepositAndLend[assetsSerialNumber[i]][0]).balanceOf(user)
+                    _amountDeposit += depositBal
                                     * tempgetprice / 1 ether
                                     * licensedAssets[assetsSerialNumber[i]].homogeneousModeLTV / UPPER_SYSTEM_LIMIT;
             }else{
-                    _amountDeposit += iDepositOrLoanCoin(assetsDepositAndLend[assetsSerialNumber[i]][0]).balanceOf(user)
+                    _amountDeposit += depositBal
                                     * tempgetprice / 1 ether
                                     * licensedAssets[assetsSerialNumber[i]].maximumLTV / UPPER_SYSTEM_LIMIT;
             }
-            _amountLending += iDepositOrLoanCoin(assetsDepositAndLend[assetsSerialNumber[i]][1]).balanceOf(user)
+            _amountLending += loanBal
                                 * tempgetprice / 1 ether;
         }
     }
