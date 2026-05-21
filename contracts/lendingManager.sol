@@ -535,6 +535,30 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
             slcUnsecuredIssuancesAmount += badDebtAmount * iSlcOracle(oracleAddr).getPrice(token) / 1 ether;
             iDepositOrLoanCoin(loanCoin).burnCoin(user, badDebtAmount);
+
+            // H-03 fix: reduce deposit coin value pro-rata so all depositors
+            // absorb the bad-debt loss instead of only late withdrawers.
+            // badDebtAmount is in the same normalized unit as deposit totalSupply.
+            address depositCoin = assetsDepositAndLend[token][0];
+            uint totalDeposits = iDepositOrLoanCoin(depositCoin).totalSupply();
+            if (totalDeposits > 0) {
+                uint oldValue = assetInfos[token].latestDepositCoinValue;
+                if (oldValue == 0) { oldValue = 1 ether; }
+                // newValue = oldValue * (totalDeposits - badDebt) / totalDeposits
+                // If badDebtAmount >= totalDeposits the asset is fully wiped.
+                if (badDebtAmount >= totalDeposits) {
+                    assetInfos[token].latestDepositCoinValue = 0;
+                    assetInfos[token].latestDepositInterest = 0;
+                } else {
+                    assetInfos[token].latestDepositCoinValue =
+                        oldValue * (totalDeposits - badDebtAmount) / totalDeposits;
+                    // Scale interest rate proportionally so accrued interest
+                    // does not restore the haircut over time.
+                    assetInfos[token].latestDepositInterest =
+                        assetInfos[token].latestDepositInterest
+                        * (totalDeposits - badDebtAmount) / totalDeposits;
+                }
+            }
         }
 
         emit BadDebtDeduction(user, block.timestamp);
