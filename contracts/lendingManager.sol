@@ -487,6 +487,20 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         for (uint i = 0; i < s.length; i++) {
             if (burnAmounts[i] > 0) {
                 iDepositOrLoanCoin(s[i].loanCoin).burnCoin(user, burnAmounts[i]);
+
+                uint totalDeposits = iDepositOrLoanCoin(s[i].depositCoin).totalSupply();
+                if (totalDeposits > 0) {
+                    assetInfo storage a = assetInfos[s[i].asset];
+                    uint oldValue = a.latestDepositCoinValue;
+                    if (oldValue == 0) { oldValue = 1 ether; }
+                    if (burnAmounts[i] >= totalDeposits) {
+                        a.latestDepositCoinValue = 0;
+                        a.latestDepositInterest = 0;
+                    } else {
+                        a.latestDepositCoinValue = oldValue * (totalDeposits - burnAmounts[i]) / totalDeposits;
+                        a.latestDepositInterest = a.latestDepositInterest * (totalDeposits - burnAmounts[i]) / totalDeposits;
+                    }
+                }
             }
         }
         emit BadDebtDeduction(user, block.timestamp);
