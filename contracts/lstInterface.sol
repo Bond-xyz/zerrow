@@ -818,21 +818,23 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
 
         for(uint i = 0; i != times; i++){
             if (tokenAddr == W0G) {
+                uint depositedGTokens;
                 if(stakeToken == gToken) {
                     require(currentAmount <= address(this).balance,"Insufficient balance");
                     // Stake current amount
                     iLstGimo(lstGimo).stake{value: currentAmount}("zerrow");
                     // Get received gTokens
-                    uint gTokenBalance = IERC20(gToken).balanceOf(address(this)) - stakeBefore;
-                    require(gTokenBalance > 0, "No gTokens received");
+                    depositedGTokens = IERC20(gToken).balanceOf(address(this)) - stakeBefore;
+                    require(depositedGTokens > 0, "No gTokens received");
                     // Approve and deposit gTokens
-                    IERC20(gToken).approve(lendingManager, gTokenBalance);
-                    iLendingManager(lendingManager).assetsDeposit( gToken, gTokenBalance, msg.sender);
+                    IERC20(gToken).approve(lendingManager, depositedGTokens);
+                    iLendingManager(lendingManager).assetsDeposit( gToken, depositedGTokens, msg.sender);
                 }else{
                     revert("Need be a 0g Lst Token");
                 }
-                // Calculate and validate lending amount
-                uint lendAmount = (currentAmount * percentage) / 10000;
+                // Size borrow from realized gToken collateral value, not native input
+                uint realizedCollateralValue = depositedGTokens * iLstGimo(lstGimo).getRate() / 1 ether;
+                uint lendAmount = (realizedCollateralValue * percentage) / 10000;
                 require(lendAmount > 0, "Lending amount too small");
                 iLendingManager(lendingManager).lendAsset(tokenAddr, lendAmount, msg.sender );
                 // Update for next iteration
