@@ -12,7 +12,13 @@ import "../contracts/coinFactory.sol";
 import "../contracts/lendingInterface.sol";
 import "../contracts/TimelockCancelGuardian.sol";
 
-contract DeployTimelock is ScriptBase {
+/**
+ * @title ScheduleTimelock
+ * @notice Phase 1: Deploy the timelock, set guardians, initiate ownership
+ *         transfers, and schedule the bootstrap accept calls.
+ *         Run this first, then wait >= MIN_DELAY before running ExecuteTimelock.
+ */
+contract ScheduleTimelock is ScriptBase {
     struct Config {
         address multisig;
         address guardian;
@@ -48,7 +54,7 @@ contract DeployTimelock is ScriptBase {
         _setGuardians(p, cfg.guardian);
         _initiateTransfers(p, address(timelock));
 
-        _bootstrapAccepts(timelock, p);
+        _scheduleBootstrap(timelock, p);
 
         // Transfer UpgradeableBeacon ownership to timelock (immediate, not two-step)
         UpgradeableBeacon(p.beacon).transferOwnership(address(timelock));
@@ -64,7 +70,9 @@ contract DeployTimelock is ScriptBase {
 
     function _loadConfig() internal view returns (Config memory cfg) {
         cfg.multisig = vm.envAddress("MULTISIG_ADDRESS");
+        require(cfg.multisig != address(0), "DeployTimelock: MULTISIG_ADDRESS not set");
         cfg.guardian = vm.envAddress("GUARDIAN_ADDRESS");
+        require(cfg.guardian != address(0), "DeployTimelock: GUARDIAN_ADDRESS not set");
         cfg.delay = _envUintOr("TIMELOCK_DELAY", 24 hours);
     }
 
@@ -104,48 +112,53 @@ contract DeployTimelock is ScriptBase {
         lendingInterface(payable(p.lendingIface)).transferAdmin(dest);
     }
 
-    function _bootstrapAccepts(
+    function _scheduleBootstrap(
         TimelockController timelock,
         Proxies memory p
     ) internal {
-        _scheduleAndExecute(
+        uint256 delay = timelock.getMinDelay();
+
+        _schedule(
             timelock, p.manager,
             abi.encodeWithSelector(lendingManager.acceptSetter.selector, true),
-            keccak256("bootstrap-manager")
+            keccak256("bootstrap-manager"),
+            delay
         );
-        _scheduleAndExecute(
+        _schedule(
             timelock, p.vaults,
             abi.encodeWithSelector(lendingVaults.acceptSetter.selector, true),
-            keccak256("bootstrap-vaults")
+            keccak256("bootstrap-vaults"),
+            delay
         );
-        _scheduleAndExecute(
+        _schedule(
             timelock, p.factory,
             abi.encodeWithSelector(coinFactory.acceptPA.selector, true),
-            keccak256("bootstrap-factory")
+            keccak256("bootstrap-factory"),
+            delay
         );
-        _scheduleAndExecute(
+        _schedule(
             timelock, p.oracle,
             abi.encodeWithSelector(zerrowOracleRedstone.acceptSetter.selector, true),
-            keccak256("bootstrap-oracle")
+            keccak256("bootstrap-oracle"),
+            delay
         );
-        _scheduleAndExecute(
+        _schedule(
             timelock, p.lendingIface,
             abi.encodeWithSelector(lendingInterface.acceptAdmin.selector, true),
-            keccak256("bootstrap-interface")
+            keccak256("bootstrap-interface"),
+            delay
         );
     }
 
-    function _scheduleAndExecute(
+    function _schedule(
         TimelockController timelock,
         address target,
         bytes memory data,
-        bytes32 salt
+        bytes32 salt,
+        uint256 delay
     ) internal {
         bytes32 predecessor = bytes32(0);
-        uint256 delay = timelock.getMinDelay();
-
         timelock.schedule(target, 0, data, predecessor, salt, delay);
-        timelock.execute(target, 0, data, predecessor, salt);
     }
 
     function _absolutePath(string memory path) internal view returns (string memory) {
@@ -166,5 +179,92 @@ contract DeployTimelock is ScriptBase {
         } catch {
             return fallback_;
         }
+    }
+}
+
+/**
+ * @title ExecuteTimelock
+ * @notice Phase 2: Execute the bootstrap accept calls after MIN_DELAY has elapsed.
+ *         Run this only after the delay period from ScheduleTimelock has passed.
+ */
+contract ExecuteTimelock is ScriptBase {
+    struct Proxies {
+        address manager;
+        address vaults;
+        address factory;
+        address oracle;
+        address lendingIface;
+    }
+
+    function run() external {
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        address timelockAddr = vm.envAddress("TIMELOCK_ADDRESS");
+        require(timelockAddr != address(0), "ExecuteTimelock: TIMELOCK_ADDRESS not set");
+
+        Proxies memory p = _loadProxies();
+        TimelockController timelock = TimelockController(payable(timelockAddr));
+
+        vm.startBroadcast(deployerKey);
+
+        _execute(
+            timelock, p.manager,
+            abi.encodeWithSelector(lendingManager.acceptSetter.selector, true),
+            keccak256("bootstrap-manager")
+        );
+        _execute(
+            timelock, p.vaults,
+            abi.encodeWithSelector(lendingVaults.acceptSetter.selector, true),
+            keccak256("bootstrap-vaults")
+        );
+        _execute(
+            timelock, p.factory,
+            abi.encodeWithSelector(coinFactory.acceptPA.selector, true),
+            keccak256("bootstrap-factory")
+        );
+        _execute(
+            timelock, p.oracle,
+            abi.encodeWithSelector(zerrowOracleRedstone.acceptSetter.selector, true),
+            keccak256("bootstrap-oracle")
+        );
+        _execute(
+            timelock, p.lendingIface,
+            abi.encodeWithSelector(lendingInterface.acceptAdmin.selector, true),
+            keccak256("bootstrap-interface")
+        );
+
+        vm.stopBroadcast();
+    }
+
+    function _loadProxies() internal view returns (Proxies memory p) {
+        string memory manifest = vm.readFile(
+            _absolutePath(vm.envString("DEPLOYMENT_FILE"))
+        );
+        p.manager = _readAddress(manifest, ".contracts.lendingManager");
+        p.vaults = _readAddress(manifest, ".contracts.lendingVaults");
+        p.factory = _readAddress(manifest, ".contracts.coinFactory");
+        p.oracle = _readAddress(manifest, ".contracts.oracle");
+        p.lendingIface = _readAddress(manifest, ".contracts.lendingInterface");
+    }
+
+    function _execute(
+        TimelockController timelock,
+        address target,
+        bytes memory data,
+        bytes32 salt
+    ) internal {
+        bytes32 predecessor = bytes32(0);
+        timelock.execute(target, 0, data, predecessor, salt);
+    }
+
+    function _absolutePath(string memory path) internal view returns (string memory) {
+        bytes memory raw = bytes(path);
+        if (raw.length > 0 && raw[0] == bytes1(uint8(47))) {
+            return path;
+        }
+        return string(abi.encodePacked(vm.projectRoot(), "/", path));
+    }
+
+    function _readAddress(string memory json, string memory key) internal pure returns (address) {
+        return vm.parseJsonAddress(json, key);
     }
 }
