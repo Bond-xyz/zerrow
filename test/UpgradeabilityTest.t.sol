@@ -234,7 +234,7 @@ contract LendingManagerUpgradeTest is TestBase {
         LendingManagerV2 implV2 = new LendingManagerV2();
 
         vm.prank(nonSetter);
-        vm.expectRevert("not setter");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OnlySetter.selector));
         manager.upgradeTo(address(implV2));
     }
 
@@ -742,7 +742,7 @@ contract PausabilityTest is TestBase {
 
     function test_NonSetterCannotPause() public {
         vm.prank(nonSetter);
-        vm.expectRevert("not setter or guardian");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.NotSetterOrGuardian.selector));
         manager.pause();
     }
 
@@ -751,7 +751,7 @@ contract PausabilityTest is TestBase {
         manager.pause();
 
         vm.prank(nonSetter);
-        vm.expectRevert("Lending Manager: Only Setter Use");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OnlySetter.selector));
         manager.unpause();
     }
 
@@ -769,9 +769,8 @@ contract PausabilityTest is TestBase {
         manager.unpause();
 
         // Operations should work again (will revert for other reasons, not Pausable)
-        // assetsDeposit will revert with "Lending Manager: Token not licensed" not "Pausable: paused"
         vm.prank(setter);
-        vm.expectRevert("Lending Manager: Token not licensed");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.TokenNotLicensed.selector));
         manager.assetsDeposit(address(mockToken), 100, setter);
     }
 
@@ -821,7 +820,7 @@ contract AccessControlTest is TestBase {
         lendingManager mgr = lendingManager(address(proxy));
 
         vm.prank(nonSetter);
-        vm.expectRevert("Lending Manager: Only Setter Use");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OnlySetter.selector));
         mgr.setup(address(0x1), address(0x2), address(0x3), address(0x4), address(0x5));
     }
 
@@ -843,7 +842,7 @@ contract AccessControlTest is TestBase {
 
         // Random user cannot accept
         vm.prank(randomUser);
-        vm.expectRevert("Lending Manager: Permission FORBIDDEN");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.PermissionForbidden.selector));
         mgr.acceptSetter(true);
 
         // Step 2: new setter accepts
@@ -854,7 +853,7 @@ contract AccessControlTest is TestBase {
         // Old setter can no longer upgrade
         LendingManagerV2 implV2 = new LendingManagerV2();
         vm.prank(setter);
-        vm.expectRevert("not setter");
+        vm.expectRevert(abi.encodeWithSelector(lendingManager.OnlySetter.selector));
         mgr.upgradeTo(address(implV2));
 
         // New setter CAN upgrade
