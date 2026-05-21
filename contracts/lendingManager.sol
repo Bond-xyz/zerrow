@@ -567,14 +567,17 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     //  Assets Deposit
     function assetsDeposit(address tokenAddr, uint amount, address user) public whenNotPaused nonReentrant {
         _requireInterface(user);
-        uint amountNormalize = _rawToNormalized(tokenAddr, amount);
 
         _requireNonZeroAmount(amount);
         _requireLicensed(tokenAddr);
         _checkDepositMode(tokenAddr, user);
 
         _beforeUpdate(tokenAddr);
+        uint balBefore = IERC20(tokenAddr).balanceOf(lendingVault);
         IERC20(tokenAddr).safeTransferFrom(msg.sender,lendingVault,amount);
+        uint balAfter = IERC20(tokenAddr).balanceOf(lendingVault);
+        uint actualReceived = balAfter - balBefore;
+        uint amountNormalize = _rawToNormalized(tokenAddr, actualReceived);
         iDepositOrLoanCoin(assetsDepositAndLend[tokenAddr][0]).mintCoin(user,amountNormalize);
         _assetsValueUpdate(tokenAddr);
         emit AssetsDeposit(tokenAddr, amount, user);
@@ -633,11 +636,18 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     // repay Loan
     function repayLoan(address tokenAddr,uint amount, address user) public whenNotPaused nonReentrant {
         _requireInterface(user);
-        uint amountNormalize = _rawToNormalized(tokenAddr, amount);
         uint amountTokenMax = iDepositOrLoanCoin(assetsDepositAndLend[tokenAddr][1]).balanceOf(user);
 
         _requireNonZeroAmount(amount);
         _requireLicensed(tokenAddr);
+
+        _beforeUpdate(tokenAddr);
+        uint balBefore = IERC20(tokenAddr).balanceOf(lendingVault);
+        IERC20(tokenAddr).safeTransferFrom(msg.sender,lendingVault,amount);
+        uint balAfter = IERC20(tokenAddr).balanceOf(lendingVault);
+        uint actualReceived = balAfter - balBefore;
+        uint amountNormalize = _rawToNormalized(tokenAddr, actualReceived);
+
         if(amountNormalize > amountTokenMax){
             if(amountNormalize - amountTokenMax >= _rawToNormalized(tokenAddr, 1)) revert RepayExceedsDebt();
             amountNormalize = amountTokenMax;
@@ -646,10 +656,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         if(userMode[user] == 1){
             _updateRIMAccounting(user, tokenAddr, amountNormalize, false);
         }
-        _beforeUpdate(tokenAddr);
 
         iDepositOrLoanCoin(assetsDepositAndLend[tokenAddr][1]).burnCoin(user,amountNormalize);
-        IERC20(tokenAddr).safeTransferFrom(msg.sender,lendingVault,amount);
         _assetsValueUpdate(tokenAddr);
         emit RepayLoan(tokenAddr, amount, user);
     }
@@ -704,6 +712,14 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         licensedAsset storage depAsset = licensedAssets[depositToken];
         if (depAsset.assetAddr != depositToken) revert CollateralTokenNotLicensed();
 
+        // Measure actual tokens received by vault (fee-on-transfer safe)
+        uint balBefore = IERC20(liquidateToken).balanceOf(lendingVault);
+        IERC20(liquidateToken).safeTransferFrom(msg.sender, lendingVault, liquidateAmount);
+        uint balAfter = IERC20(liquidateToken).balanceOf(lendingVault);
+        uint actualReceived = balAfter - balBefore;
+        liquidateAmountNormalize = _rawToNormalized(liquidateToken, actualReceived);
+        require(liquidateAmountNormalize > 0,"Lending Manager: Cant Pledge 0 amount");
+
         uint healthFactorBefore;
         uint seizedCollateralNormalize;
         (healthFactorBefore, seizedCollateralNormalize) = LendingManagerLib.previewLiquidation(
@@ -720,7 +736,6 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             })
         );
 
-        IERC20(liquidateToken).safeTransferFrom(msg.sender, lendingVault, liquidateAmount);
         iDepositOrLoanCoin(assetsDepositAndLend[liquidateToken][1]).burnCoin(user,liquidateAmountNormalize);
         iDepositOrLoanCoin(assetsDepositAndLend[depositToken][0]).burnCoin(user,seizedCollateralNormalize);
 
