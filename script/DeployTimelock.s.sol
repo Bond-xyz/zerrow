@@ -2,6 +2,7 @@
 pragma solidity 0.8.6;
 
 import "@openzeppelin/contracts/governance/TimelockController.sol";
+import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 
 import "./utils/ScriptBase.sol";
 import "../contracts/lendingManager.sol";
@@ -24,6 +25,7 @@ contract DeployTimelock is ScriptBase {
         address factory;
         address oracle;
         address lendingIface;
+        address beacon;
     }
 
     function run() external {
@@ -48,6 +50,13 @@ contract DeployTimelock is ScriptBase {
 
         _bootstrapAccepts(timelock, p);
 
+        // Transfer UpgradeableBeacon ownership to timelock (immediate, not two-step)
+        UpgradeableBeacon(p.beacon).transferOwnership(address(timelock));
+        require(
+            UpgradeableBeacon(p.beacon).owner() == address(timelock),
+            "DeployTimelock: beacon ownership transfer failed"
+        );
+
         timelock.renounceRole(timelock.TIMELOCK_ADMIN_ROLE(), deployer);
 
         vm.stopBroadcast();
@@ -68,6 +77,7 @@ contract DeployTimelock is ScriptBase {
         p.factory = _readAddress(manifest, ".contracts.coinFactory");
         p.oracle = _readAddress(manifest, ".contracts.oracle");
         p.lendingIface = _readAddress(manifest, ".contracts.lendingInterface");
+        p.beacon = _readAddress(manifest, ".contracts.depositOrLoanCoinBeacon");
     }
 
     function _deployTimelock(
