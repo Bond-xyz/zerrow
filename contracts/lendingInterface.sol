@@ -68,6 +68,15 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         pendingAdmin = address(0);
     }
 
+    function cancelTransferAdmin() external {
+        require(msg.sender == admin, "not admin");
+        address cancelled = pendingAdmin;
+        pendingAdmin = address(0);
+        emit TransferAdminCancelled(cancelled);
+    }
+
+    event TransferAdminCancelled(address indexed cancelledPending);
+
     //------------------------------------------------ View ----------------------------------------------------
     function licensedAssets(
         address token

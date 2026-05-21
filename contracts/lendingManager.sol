@@ -129,6 +129,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     event BadDebtDeduction(address user,uint blockTimestamp);
     event Liquidation(address indexed user, address indexed liquidator, address liquidateToken, address depositToken, uint liquidateAmount, uint seizedAmount);
     event LicensedAssetsDeregistered(address indexed _asset);
+    event TransferSetterCancelled(address indexed cancelledPending);
     //------------------------------------------------------------------
 
     /// @dev Disable initializer on implementation contract
@@ -178,6 +179,12 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             setter = newsetter;
         }
         newsetter = address(0);
+    }
+
+    function cancelTransferSetter() external onlySetter {
+        address cancelled = newsetter;
+        newsetter = address(0);
+        emit TransferSetterCancelled(cancelled);
     }
 
     function setup( address _coinFactory,
