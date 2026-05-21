@@ -106,6 +106,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     error PermissionForbidden();
     error NormalFloorTooLow();
     error HomogeneousFloorTooLow();
+    error NormalFloorTooHigh();
+    error HomogeneousFloorTooHigh();
     error HomogeneousFloorMustBeBelowNormal();
     error WrongRIMToken();
     error WrongHomogeneousMode();
@@ -268,6 +270,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         _requireSetter();
         if (normal < 1 ether) revert NormalFloorTooLow();
         if (homogeneous < 1 ether) revert HomogeneousFloorTooLow();
+        if (normal > 100 ether) revert NormalFloorTooHigh();
+        if (homogeneous > 100 ether) revert HomogeneousFloorTooHigh();
         if (normal <= homogeneous) revert HomogeneousFloorMustBeBelowNormal();
         normalFloorOfHealthFactor = normal;
         homogeneousFloorOfHealthFactor = homogeneous;
