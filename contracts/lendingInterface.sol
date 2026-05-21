@@ -27,6 +27,13 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
 
     using SafeERC20 for IERC20;
 
+    /// @notice Emitted when repayLoanMax2 leaves sub-raw-unit normalized dust
+    ///         because the user's debt has precision below the token's decimals.
+    /// @param user         The borrower whose debt was (nearly) fully repaid.
+    /// @param tokenAddr    The underlying ERC-20 repayment token.
+    /// @param dustNormalized Residual normalized debt (< 1 raw unit in value).
+    event RepayLoanMaxDust(address indexed user, address indexed tokenAddr, uint dustNormalized);
+
     /// @dev Storage gap for future upgrades
     uint256[49] private __gap;
 
@@ -639,13 +646,14 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         uint wrappedBefore = IERC20(W0G).balanceOf(address(this));
         uint nativeBefore = address(this).balance - msg.value;
         address[2] memory depositAndLend = assetsDepositAndLendAddrs(tokenAddr);
-        uint tokenBalance = IERC20(depositAndLend[1]).balanceOf(
+        uint debtNormalized = IERC20(depositAndLend[1]).balanceOf(
             address(msg.sender)
         );
-        uint tokenBackAmount = tokenBalance * (10**iDecimals(tokenAddr).decimals()) / 1 ether;
-        if(tokenBalance > tokenBackAmount * 1 ether / (10**iDecimals(tokenAddr).decimals())) {
-            tokenBackAmount = tokenBackAmount + 1;
-        }
+        // Q-03 fix: use floor (truncation) instead of ceiling to avoid
+        // overpaying one raw token unit when normalized debt has sub-raw-unit
+        // dust.  Any residual dust (< 1 raw unit in value) is emitted via
+        // RepayLoanMaxDust so off-chain systems can track it.
+        uint tokenBackAmount = debtNormalized * (10**iDecimals(tokenAddr).decimals()) / 1 ether;
         if (tokenAddr == W0G) {
             require(
                 tokenBackAmount <= msg.value,
@@ -666,6 +674,12 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
             tokenBackAmount,
             msg.sender
         );
+        // Emit dust event if sub-raw-unit normalized debt remains after
+        // floor-based repayment (the residual is < 1 raw unit in value).
+        uint remainingDebt = IERC20(depositAndLend[1]).balanceOf(msg.sender);
+        if (remainingDebt > 0) {
+            emit RepayLoanMaxDust(msg.sender, tokenAddr, remainingDebt);
+        }
         _refundNativeCompatible(tokenAddr, tokenBefore, wrappedBefore, nativeBefore);
     }
     // ======================== contract base methods =====================
