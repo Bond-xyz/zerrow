@@ -649,7 +649,10 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         if (VaultTokensAmount(tokenAddr) < amountNormalize) revert VaultInsufficient();
         if (amountTokenMax < amountNormalize) revert UserBalanceInsufficient();
         if(amountTokenMax - amountNormalize < _rawToNormalized(tokenAddr, 1)) {
-            amountNormalize = amountTokenMax;
+            // Dust remaining is less than 1 raw unit.
+            // Only burn the normalized equivalent of the raw amount actually transferred,
+            // so we don't burn more value than the user receives.
+            amountNormalize = _rawToNormalized(tokenAddr, amount);
         }
 
         iLendingVaults(lendingVault).vaultsERC20Approve(tokenAddr, amount);
