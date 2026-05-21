@@ -773,7 +773,9 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
         uint healthFactorAfter = viewUsersHealthFactor(user);
         require(
-            _userTotalLendingValue(user) == 0 || healthFactorAfter > healthFactorBefore,
+            _userTotalLendingValue(user) == 0
+                || healthFactorAfter >= 1 ether
+                || healthFactorAfter > healthFactorBefore,
             "Lending Manager: Liquidation must improve health factor"
         );
 
