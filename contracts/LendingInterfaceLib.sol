@@ -65,7 +65,9 @@ library LendingInterfaceLib {
     ) internal view returns (uint userValueUsedRatio, uint userMaxUsedRatio, uint tokenLiquidateRatio) {
         for (uint i = 0; i != tokens.length; i++) {
             if (tokens[i] == ctx.userRIMSetAssets && _amountDeposit[i] > 0) {
-                uint rimAmount = iLendingManager(ctx.mgr).userRIMAssetsLendingNetAmount(user, ctx.userRIMSetAssets);
+                // RIM debt is stored under the borrow-asset key (riskIsolationModeAcceptAssets),
+                // not the collateral-asset key (userRIMSetAssets).
+                uint rimAmount = iLendingManager(ctx.mgr).userRIMAssetsLendingNetAmount(user, iLendingManager(ctx.mgr).riskIsolationModeAcceptAssets());
                 userValueUsedRatio = (((rimAmount * 10000) / _amountDeposit[i]) * 1 ether) / assetPrice[i];
                 iLendingManager.licensedAsset memory usefulAsset = iLendingManager(ctx.mgr).licensedAssets(tokens[i]);
                 userMaxUsedRatio = (usefulAsset.maximumLTV * 1 ether) / ctx.normalFloor;
