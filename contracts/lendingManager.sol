@@ -520,6 +520,20 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         emit DepositAndLoanInterest( token, latestInterest[0], latestInterest[1], block.timestamp);
     }
 
+    /// @dev Decrement RIM debt counters when loan coins are burned outside of repayLoan.
+    ///      Safe to call for any user/token; no-ops when user is not in RIM mode or
+    ///      the token is not the RIM-accepted asset.
+    function _decrementRIMDebt(address user, address token, uint amount) internal {
+        if (userMode[user] != 1 || token != riskIsolationModeAcceptAssets) {
+            return;
+        }
+        address rimAsset = userRIMAssetsAddress[user];
+        uint currentRIM = userRIMAssetsLendingNetAmount[user][token];
+        uint decrement = amount > currentRIM ? currentRIM : amount;
+        userRIMAssetsLendingNetAmount[user][token] -= decrement;
+        riskIsolationModeLendingNetAmount[rimAsset] -= decrement;
+    }
+
     function _socializeBadDebt(address user) internal {
         if (_userTotalDepositValue(user) != 0 || _userTotalLendingValue(user) == 0) {
             return;
@@ -535,6 +549,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
             slcUnsecuredIssuancesAmount += badDebtAmount * iSlcOracle(oracleAddr).getPrice(token) / 1 ether;
             iDepositOrLoanCoin(loanCoin).burnCoin(user, badDebtAmount);
+            _decrementRIMDebt(user, token, badDebtAmount);
         }
 
         emit BadDebtDeduction(user, block.timestamp);
@@ -771,6 +786,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         );
 
         iDepositOrLoanCoin(assetsDepositAndLend[liquidateToken][1]).burnCoin(user,liquidateAmountNormalize);
+        _decrementRIMDebt(user, liquidateToken, liquidateAmountNormalize);
         iDepositOrLoanCoin(assetsDepositAndLend[depositToken][0]).burnCoin(user,seizedCollateralNormalize);
 
         usedAmount = _normalizedToRaw(depositToken, seizedCollateralNormalize);
