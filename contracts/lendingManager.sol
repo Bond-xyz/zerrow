@@ -711,8 +711,9 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         require(flashLoanFeesAddress != address(0),"Lending Manager: Flash loan fees address not set");
         userNeedPaid = userNeedPaid / iSlcOracle(oracleAddr).getPrice(useTokenAddr);
         require(VaultTokensAmount(useTokenAddr) > userNeedPaid,"Lending Manager: Vault Tokens amount NOT enough");
-        iLendingVaults(lendingVault).vaultsERC20Approve(useTokenAddr, userNeedPaid);
-        IERC20(useTokenAddr).safeTransferFrom(lendingVault, flashLoanFeesAddress, userNeedPaid);
+        uint userNeedPaidRaw = _normalizedToRaw(useTokenAddr, userNeedPaid);
+        iLendingVaults(lendingVault).vaultsERC20Approve(useTokenAddr, userNeedPaidRaw);
+        IERC20(useTokenAddr).safeTransferFrom(lendingVault, flashLoanFeesAddress, userNeedPaidRaw);
         iDepositOrLoanCoin(assetsDepositAndLend[useTokenAddr][0]).burnCoin(user, userNeedPaid);
 
         _beforeUpdate(useTokenAddr);
