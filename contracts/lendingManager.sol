@@ -704,6 +704,18 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
         usedAmount = _normalizedToRaw(depositToken, seizedCollateralNormalize);
         if (receiveDepositCoin) {
+            // M-02: enforce collateral-mode isolation on the liquidator
+            uint8 liquidatorMode = userMode[msg.sender];
+            if (liquidatorMode == 0) {
+                require(licensedAssets[depositToken].maxLendingAmountInRIM == 0,
+                    "Lending Manager: Liquidator mode does not permit this collateral");
+            } else if (liquidatorMode == 1) {
+                require(depositToken == userRIMAssetsAddress[msg.sender],
+                    "Lending Manager: Liquidator mode does not permit this collateral");
+            } else {
+                require(licensedAssets[depositToken].lendingModeNum == liquidatorMode,
+                    "Lending Manager: Liquidator mode does not permit this collateral");
+            }
             iDepositOrLoanCoin(assetsDepositAndLend[depositToken][0]).mintCoin(msg.sender,seizedCollateralNormalize);
         } else {
             iLendingVaults(lendingVault).vaultsERC20Approve(depositToken, usedAmount);
