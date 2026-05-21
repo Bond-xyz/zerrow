@@ -289,7 +289,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                 && _liqPenalty >= 100
                 && _liqPenalty <= UPPER_SYSTEM_LIMIT/5
                 && _bestLendingRatio > 0
-                && _bestLendingRatio < UPPER_SYSTEM_LIMIT
+                && _bestLendingRatio <= 9000
                 && _homogeneousModeLTV < UPPER_SYSTEM_LIMIT
                 && _bestDepositInterestRate > 0
                 && _bestDepositInterestRate <= MAX_BEST_DEPOSIT_INTEREST_RATE
@@ -339,7 +339,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                 && _liqPenalty >= 100
                 && _liqPenalty <= UPPER_SYSTEM_LIMIT/5
                 && _bestLendingRatio > 0
-                && _bestLendingRatio < UPPER_SYSTEM_LIMIT
+                && _bestLendingRatio <= 9000
                 && _homogeneousModeLTV < UPPER_SYSTEM_LIMIT
                 && _bestDepositInterestRate > 0
                 && _bestDepositInterestRate <= MAX_BEST_DEPOSIT_INTEREST_RATE
