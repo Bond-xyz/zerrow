@@ -88,13 +88,20 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     address public guardian;
 
-    /// @dev Storage gap for future upgrades
-    uint256[49] private __gap;
+    /// @notice Incremented each time an interface is de-listed, invalidating
+    ///         any approvals that were granted under a prior version.
+    mapping(address => uint256) public interfaceVersion;
+    /// @notice Records the interfaceVersion at which a user granted approval.
+    mapping(address => mapping(address => uint256)) public interfaceApprovalVersion;
+
+    /// @dev Storage gap for future upgrades (reduced by 2 for new mappings)
+    uint256[47] private __gap;
 
     //----------------------------custom errors ----------------------------
     error OnlySetter();
     error NotWhitelistedInterface();
     error InterfaceNotApproved();
+    error ApprovalOutdated();
     error ZeroAddress();
     error ZeroAmount();
     error TokenNotLicensed();
@@ -166,6 +173,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         if (msg.sender != user) {
             if (!xInterface[msg.sender]) revert NotWhitelistedInterface();
             if (!interfaceApproval[user][msg.sender]) revert InterfaceNotApproved();
+            if (interfaceApprovalVersion[user][msg.sender] != interfaceVersion[msg.sender]) revert ApprovalOutdated();
         }
     }
 
@@ -251,6 +259,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         uint lengthTemp = interfaceArray.length;
         if(_ToF == false){
             xInterface[_xInterface] = false;
+            // Bump version so all prior approvals for this interface become stale
+            interfaceVersion[_xInterface] += 1;
             for(uint i = 0; i != lengthTemp; i++){
                 if(interfaceArray[i] == _xInterface){
                     interfaceArray[i] = interfaceArray[lengthTemp -1];
@@ -269,6 +279,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         uint lengthTemp = interfaceArray.length;
         for(uint i = 0; i != lengthTemp; i++){
             interfaceApproval[msg.sender][interfaceArray[i]] = approved;
+            interfaceApprovalVersion[msg.sender][interfaceArray[i]] = interfaceVersion[interfaceArray[i]];
             emit InterfaceApproval(msg.sender, interfaceArray[i], approved);
         }
     }
