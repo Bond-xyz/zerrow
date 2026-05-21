@@ -75,6 +75,15 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         pendingAdmin = address(0);
     }
 
+    function cancelTransferAdmin() external {
+        require(msg.sender == admin, "not admin");
+        address cancelled = pendingAdmin;
+        pendingAdmin = address(0);
+        emit TransferAdminCancelled(cancelled);
+    }
+
+    event TransferAdminCancelled(address indexed cancelledPending);
+
     //------------------------------------------------ View ----------------------------------------------------
     function licensedAssets(
         address token
@@ -306,22 +315,19 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
 
         (_amountDeposit, _amountLending) = iLendingManager(lendingManager)
             .userDepositAndLendingValue(user);
-        if (operator == 0) {
-            _amountDeposit +=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 1) {
-            _amountDeposit -=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 2) {
-            _amountLending +=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 3) {
-            _amountLending -=
-                (amount * tokenPrice) /
-                1 ether;
+        {
+            uint normalizedAmount = amount * 1 ether / (10 ** iDecimals(token).decimals());
+            uint weightedDepositValue = normalizedAmount * tokenPrice / 1 ether * modeLTV / 10000;
+            uint lendingValue = normalizedAmount * tokenPrice / 1 ether;
+            if (operator == 0) {
+                _amountDeposit += weightedDepositValue;
+            } else if (operator == 1) {
+                _amountDeposit -= weightedDepositValue;
+            } else if (operator == 2) {
+                _amountLending += lendingValue;
+            } else if (operator == 3) {
+                _amountLending -= lendingValue;
+            }
         }
         if (_amountLending > 0) {
             userHealthFactor = (_amountDeposit * 1 ether) / _amountLending;
@@ -826,21 +832,23 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
 
         for(uint i = 0; i != times; i++){
             if (tokenAddr == W0G) {
+                uint depositedGTokens;
                 if(stakeToken == gToken) {
                     require(currentAmount <= address(this).balance,"Insufficient balance");
                     // Stake current amount
                     iLstGimo(lstGimo).stake{value: currentAmount}("zerrow");
                     // Get received gTokens
-                    uint gTokenBalance = IERC20(gToken).balanceOf(address(this)) - stakeBefore;
-                    require(gTokenBalance > 0, "No gTokens received");
+                    depositedGTokens = IERC20(gToken).balanceOf(address(this)) - stakeBefore;
+                    require(depositedGTokens > 0, "No gTokens received");
                     // Approve and deposit gTokens
-                    IERC20(gToken).approve(lendingManager, gTokenBalance);
-                    iLendingManager(lendingManager).assetsDeposit( gToken, gTokenBalance, msg.sender);
+                    IERC20(gToken).approve(lendingManager, depositedGTokens);
+                    iLendingManager(lendingManager).assetsDeposit( gToken, depositedGTokens, msg.sender);
                 }else{
                     revert("Need be a 0g Lst Token");
                 }
-                // Calculate and validate lending amount
-                uint lendAmount = (currentAmount * percentage) / 10000;
+                // Size borrow from realized gToken collateral value, not native input
+                uint realizedCollateralValue = depositedGTokens * iLstGimo(lstGimo).getRate() / 1 ether;
+                uint lendAmount = (realizedCollateralValue * percentage) / 10000;
                 require(lendAmount > 0, "Lending amount too small");
                 iLendingManager(lendingManager).lendAsset(tokenAddr, lendAmount, msg.sender );
                 // Update for next iteration

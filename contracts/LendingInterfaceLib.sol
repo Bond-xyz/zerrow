@@ -6,6 +6,7 @@ import "./interfaces/iLendingManager.sol";
 import "./interfaces/islcoracle.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
+import "./interfaces/iDecimals.sol";
 
 library LendingInterfaceLib {
 
@@ -64,7 +65,9 @@ library LendingInterfaceLib {
     ) internal view returns (uint userValueUsedRatio, uint userMaxUsedRatio, uint tokenLiquidateRatio) {
         for (uint i = 0; i != tokens.length; i++) {
             if (tokens[i] == ctx.userRIMSetAssets && _amountDeposit[i] > 0) {
-                uint rimAmount = iLendingManager(ctx.mgr).userRIMAssetsLendingNetAmount(user, ctx.userRIMSetAssets);
+                // RIM debt is stored under the borrow-asset key (riskIsolationModeAcceptAssets),
+                // not the collateral-asset key (userRIMSetAssets).
+                uint rimAmount = iLendingManager(ctx.mgr).userRIMAssetsLendingNetAmount(user, iLendingManager(ctx.mgr).riskIsolationModeAcceptAssets());
                 userValueUsedRatio = (((rimAmount * 10000) / _amountDeposit[i]) * 1 ether) / assetPrice[i];
                 iLendingManager.licensedAsset memory usefulAsset = iLendingManager(ctx.mgr).licensedAssets(tokens[i]);
                 userMaxUsedRatio = (usefulAsset.maximumLTV * 1 ether) / ctx.normalFloor;
@@ -197,14 +200,19 @@ library LendingInterfaceLib {
         }
 
         (_amountDeposit, _amountLending) = iLendingManager(mgr).userDepositAndLendingValue(user);
-        if (operator == 0) {
-            _amountDeposit += (amount * c.tokenPrice) / 1 ether;
-        } else if (operator == 1) {
-            _amountDeposit -= (amount * c.tokenPrice) / 1 ether;
-        } else if (operator == 2) {
-            _amountLending += (amount * c.tokenPrice) / 1 ether;
-        } else if (operator == 3) {
-            _amountLending -= (amount * c.tokenPrice) / 1 ether;
+        {
+            uint normalizedAmount = amount * 1 ether / (10 ** iDecimals(token).decimals());
+            uint weightedDepositValue = normalizedAmount * c.tokenPrice / 1 ether * c.modeLTV / c.upperLimit;
+            uint lendingValue = normalizedAmount * c.tokenPrice / 1 ether;
+            if (operator == 0) {
+                _amountDeposit += weightedDepositValue;
+            } else if (operator == 1) {
+                _amountDeposit -= weightedDepositValue;
+            } else if (operator == 2) {
+                _amountLending += lendingValue;
+            } else if (operator == 3) {
+                _amountLending -= lendingValue;
+            }
         }
         if (_amountLending > 0) {
             userHealthFactor = (_amountDeposit * 1 ether) / _amountLending;

@@ -88,13 +88,20 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     address public guardian;
 
-    /// @dev Storage gap for future upgrades
-    uint256[49] private __gap;
+    /// @notice Incremented each time an interface is de-listed, invalidating
+    ///         any approvals that were granted under a prior version.
+    mapping(address => uint256) public interfaceVersion;
+    /// @notice Records the interfaceVersion at which a user granted approval.
+    mapping(address => mapping(address => uint256)) public interfaceApprovalVersion;
+
+    /// @dev Storage gap for future upgrades (reduced by 2 for new mappings)
+    uint256[47] private __gap;
 
     //----------------------------custom errors ----------------------------
     error OnlySetter();
     error NotWhitelistedInterface();
     error InterfaceNotApproved();
+    error ApprovalOutdated();
     error ZeroAddress();
     error ZeroAmount();
     error TokenNotLicensed();
@@ -155,6 +162,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     event BadDebtDeduction(address user,uint blockTimestamp);
     event Liquidation(address indexed user, address indexed liquidator, address liquidateToken, address depositToken, uint liquidateAmount, uint seizedAmount);
     event LicensedAssetsDeregistered(address indexed _asset);
+    event TransferSetterCancelled(address indexed cancelledPending);
     //------------------------------------------------------------------
 
     function _requireSetter() internal view {
@@ -165,6 +173,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         if (msg.sender != user) {
             if (!xInterface[msg.sender]) revert NotWhitelistedInterface();
             if (!interfaceApproval[user][msg.sender]) revert InterfaceNotApproved();
+            if (interfaceApprovalVersion[user][msg.sender] != interfaceVersion[msg.sender]) revert ApprovalOutdated();
         }
     }
 
@@ -221,6 +230,13 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         newsetter = address(0);
     }
 
+    function cancelTransferSetter() external {
+        _requireSetter();
+        address cancelled = newsetter;
+        newsetter = address(0);
+        emit TransferSetterCancelled(cancelled);
+    }
+
     function setup( address _coinFactory,
                     address _lendingVault,
                     address _riskIsolationModeAcceptAssets,
@@ -244,6 +260,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         uint lengthTemp = interfaceArray.length;
         if(_ToF == false){
             xInterface[_xInterface] = false;
+            // Bump version so all prior approvals for this interface become stale
+            interfaceVersion[_xInterface] += 1;
             for(uint i = 0; i != lengthTemp; i++){
                 if(interfaceArray[i] == _xInterface){
                     interfaceArray[i] = interfaceArray[lengthTemp -1];
@@ -262,6 +280,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         uint lengthTemp = interfaceArray.length;
         for(uint i = 0; i != lengthTemp; i++){
             interfaceApproval[msg.sender][interfaceArray[i]] = approved;
+            interfaceApprovalVersion[msg.sender][interfaceArray[i]] = interfaceVersion[interfaceArray[i]];
             emit InterfaceApproval(msg.sender, interfaceArray[i], approved);
         }
     }
@@ -312,6 +331,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             || IERC20(assetsDepositAndLend[_asset][1]).totalSupply() != 0) revert OutstandingPositions();
         delete licensedAssets[_asset];
         delete assetsDepositAndLend[_asset];
+        delete assetInfos[_asset];
         for (uint i = 0; i < assetsSerialNumber.length; i++) {
             if (assetsSerialNumber[i] == _asset) {
                 assetsSerialNumber[i] = assetsSerialNumber[assetsSerialNumber.length - 1];
@@ -505,6 +525,23 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     function _assetsValueUpdate(address token) internal returns(uint[2] memory latestInterest){
         assetInfo storage a = assetInfos[token];
         if (a.latestTimeStamp != block.timestamp) revert NotAfterBeforeUpdate();
+
+        // When both deposit and loan supplies are zero the market is idle.
+        // Reset coin values and timestamp to baseline so the next deposit
+        // does not apply elapsed idle time against stale rate data.
+        if (IERC20(assetsDepositAndLend[token][0]).totalSupply() == 0
+            && IERC20(assetsDepositAndLend[token][1]).totalSupply() == 0) {
+            a.latestDepositCoinValue = 1 ether;
+            a.latestLendingCoinValue = 1 ether;
+            a.latestTimeStamp = block.timestamp;
+            a.latestDepositInterest = 0;
+            a.latestLendingInterest = 0;
+            latestInterest[0] = 0;
+            latestInterest[1] = 0;
+            emit DepositAndLoanInterest(token, 0, 0, block.timestamp);
+            return latestInterest;
+        }
+
         latestInterest = iLendingCoreAlgorithm(coreAlgorithm).assetsValueUpdate(token);
         a.latestDepositInterest = latestInterest[0];
         a.latestLendingInterest = latestInterest[1];
@@ -533,6 +570,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         slcUnsecuredIssuancesAmount += badDebtValue;
         for (uint i = 0; i < s.length; i++) {
             if (burnAmounts[i] > 0) {
+                _beforeUpdate(s[i].asset);
                 iDepositOrLoanCoin(s[i].loanCoin).burnCoin(user, burnAmounts[i]);
                 _decrementRIMDebt(user, s[i].asset, burnAmounts[i]);
 
@@ -551,6 +589,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                         }
                     }
                 }
+                _assetsValueUpdate(s[i].asset);
             }
         }
         emit BadDebtDeduction(user, block.timestamp);
@@ -622,7 +661,10 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         if (VaultTokensAmount(tokenAddr) < amountNormalize) revert VaultInsufficient();
         if (amountTokenMax < amountNormalize) revert UserBalanceInsufficient();
         if(amountTokenMax - amountNormalize < _rawToNormalized(tokenAddr, 1)) {
-            amountNormalize = amountTokenMax;
+            // Dust remaining is less than 1 raw unit.
+            // Only burn the normalized equivalent of the raw amount actually transferred,
+            // so we don't burn more value than the user receives.
+            amountNormalize = _rawToNormalized(tokenAddr, amount);
         }
 
         iLendingVaults(lendingVault).vaultsERC20Approve(tokenAddr, amount);
@@ -784,6 +826,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             }
             iDepositOrLoanCoin(assetsDepositAndLend[depositToken][0]).mintCoin(msg.sender,seizedCollateralNormalize);
         } else {
+            require(VaultTokensAmount(depositToken) >= seizedCollateralNormalize, "Lending Manager: Insufficient vault liquidity");
             iLendingVaults(lendingVault).vaultsERC20Approve(depositToken, usedAmount);
             IERC20(depositToken).safeTransferFrom(lendingVault, msg.sender, usedAmount);
         }

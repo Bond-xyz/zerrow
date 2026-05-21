@@ -119,10 +119,6 @@ contract coinFactory is Initializable, UUPSUpgradeable {
         require(msg.sender == setPermissionAddress, 'Coin Factory: Permission FORBIDDEN');
         depositOrLoanCoin(coinAddr).rewardContractSetup(_rewardContract);
     }
-    function coinMintLockerSetup(address coinAddr, bool tOF) external {
-        require(msg.sender == setPermissionAddress, 'Coin Factory: Permission FORBIDDEN');
-        depositOrLoanCoin(coinAddr).mintLockerSetup(tOF);
-    }
     function rewardTypeSetup(uint _depositType,uint _loanType) external {
         require(msg.sender == setPermissionAddress, 'Coin Factory: Permission FORBIDDEN');
         require(_depositType * _loanType > 0, 'Coin Factory: Type Must > 0');

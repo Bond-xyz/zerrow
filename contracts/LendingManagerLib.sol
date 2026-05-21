@@ -225,11 +225,12 @@ library LendingManagerLib {
             && _liqPenalty >= 100
             && _liqPenalty <= UPPER_SYSTEM_LIMIT / 5
             && _bestLendingRatio > 0
-            && _bestLendingRatio < UPPER_SYSTEM_LIMIT
+            && _bestLendingRatio <= 9000
             && _homogeneousModeLTV < UPPER_SYSTEM_LIMIT
             && _bestDepositInterestRate > 0
             && _bestDepositInterestRate <= 1000
-            && _reserveFactor > 0,
+            && _reserveFactor > 0
+            && _reserveFactor <= UPPER_SYSTEM_LIMIT,
             "Lending Manager: Exceed UPPER_SYSTEM_LIMIT"
         );
     }
