@@ -804,6 +804,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             }
             iDepositOrLoanCoin(assetsDepositAndLend[depositToken][0]).mintCoin(msg.sender,seizedCollateralNormalize);
         } else {
+            require(VaultTokensAmount(depositToken) >= seizedCollateralNormalize, "Lending Manager: Insufficient vault liquidity");
             iLendingVaults(lendingVault).vaultsERC20Approve(depositToken, usedAmount);
             IERC20(depositToken).safeTransferFrom(lendingVault, msg.sender, usedAmount);
         }
