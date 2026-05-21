@@ -6,6 +6,7 @@ import "./interfaces/iLendingManager.sol";
 import "./interfaces/islcoracle.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
+import "./interfaces/iDecimals.sol";
 
 library LendingInterfaceLib {
 
@@ -197,14 +198,19 @@ library LendingInterfaceLib {
         }
 
         (_amountDeposit, _amountLending) = iLendingManager(mgr).userDepositAndLendingValue(user);
-        if (operator == 0) {
-            _amountDeposit += (amount * c.tokenPrice) / 1 ether;
-        } else if (operator == 1) {
-            _amountDeposit -= (amount * c.tokenPrice) / 1 ether;
-        } else if (operator == 2) {
-            _amountLending += (amount * c.tokenPrice) / 1 ether;
-        } else if (operator == 3) {
-            _amountLending -= (amount * c.tokenPrice) / 1 ether;
+        {
+            uint normalizedAmount = amount * 1 ether / (10 ** iDecimals(token).decimals());
+            uint weightedDepositValue = normalizedAmount * c.tokenPrice / 1 ether * c.modeLTV / c.upperLimit;
+            uint lendingValue = normalizedAmount * c.tokenPrice / 1 ether;
+            if (operator == 0) {
+                _amountDeposit += weightedDepositValue;
+            } else if (operator == 1) {
+                _amountDeposit -= weightedDepositValue;
+            } else if (operator == 2) {
+                _amountLending += lendingValue;
+            } else if (operator == 3) {
+                _amountLending -= lendingValue;
+            }
         }
         if (_amountLending > 0) {
             userHealthFactor = (_amountDeposit * 1 ether) / _amountLending;
