@@ -28,8 +28,9 @@ library LendingManagerLib {
         address oracle
     ) external view returns (uint values) {
         for (uint i = 0; i < s.length; i++) {
-            values += IERC20(s[i].loanCoin).balanceOf(user)
-                * iSlcOracle(oracle).getPrice(s[i].asset) / 1 ether;
+            uint loanBal = IERC20(s[i].loanCoin).balanceOf(user);
+            if (loanBal == 0) continue;
+            values += loanBal * iSlcOracle(oracle).getPrice(s[i].asset) / 1 ether;
         }
     }
 
@@ -39,8 +40,9 @@ library LendingManagerLib {
         address oracle
     ) external view returns (uint values) {
         for (uint i = 0; i < s.length; i++) {
-            values += IERC20(s[i].depositCoin).balanceOf(user)
-                * iSlcOracle(oracle).getPrice(s[i].asset) / 1 ether;
+            uint depositBal = IERC20(s[i].depositCoin).balanceOf(user);
+            if (depositBal == 0) continue;
+            values += depositBal * iSlcOracle(oracle).getPrice(s[i].asset) / 1 ether;
         }
     }
 
@@ -52,18 +54,20 @@ library LendingManagerLib {
     ) external view returns (uint _amountDeposit, uint _amountLending) {
         uint tempgetprice;
         for (uint i = 0; i < s.length; i++) {
+            uint depositBal = iDepositOrLoanCoin(s[i].depositCoin).balanceOf(user);
+            uint loanBal = iDepositOrLoanCoin(s[i].loanCoin).balanceOf(user);
+            if (depositBal == 0 && loanBal == 0) continue;
             tempgetprice = iSlcOracle(oracle).getPrice(s[i].asset);
             if (mode > 1) {
-                _amountDeposit += iDepositOrLoanCoin(s[i].depositCoin).balanceOf(user)
+                _amountDeposit += depositBal
                     * tempgetprice / 1 ether
                     * s[i].homogeneousModeLTV / UPPER_SYSTEM_LIMIT;
             } else {
-                _amountDeposit += iDepositOrLoanCoin(s[i].depositCoin).balanceOf(user)
+                _amountDeposit += depositBal
                     * tempgetprice / 1 ether
                     * s[i].maximumLTV / UPPER_SYSTEM_LIMIT;
             }
-            _amountLending += iDepositOrLoanCoin(s[i].loanCoin).balanceOf(user)
-                * tempgetprice / 1 ether;
+            _amountLending += loanBal * tempgetprice / 1 ether;
         }
     }
 
@@ -77,18 +81,20 @@ library LendingManagerLib {
         uint _amountLending;
         uint tempgetprice;
         for (uint i = 0; i < s.length; i++) {
+            uint depositBal = iDepositOrLoanCoin(s[i].depositCoin).balanceOf(user);
+            uint loanBal = iDepositOrLoanCoin(s[i].loanCoin).balanceOf(user);
+            if (depositBal == 0 && loanBal == 0) continue;
             tempgetprice = iSlcOracle(oracle).getPrice(s[i].asset);
             if (mode > 1) {
-                _amountDeposit += iDepositOrLoanCoin(s[i].depositCoin).balanceOf(user)
+                _amountDeposit += depositBal
                     * tempgetprice / 1 ether
                     * s[i].homogeneousModeLTV / UPPER_SYSTEM_LIMIT;
             } else {
-                _amountDeposit += iDepositOrLoanCoin(s[i].depositCoin).balanceOf(user)
+                _amountDeposit += depositBal
                     * tempgetprice / 1 ether
                     * s[i].maximumLTV / UPPER_SYSTEM_LIMIT;
             }
-            _amountLending += iDepositOrLoanCoin(s[i].loanCoin).balanceOf(user)
-                * tempgetprice / 1 ether;
+            _amountLending += loanBal * tempgetprice / 1 ether;
         }
         if (_amountLending > 0) {
             userHealthFactor = _amountDeposit * 1 ether / _amountLending;

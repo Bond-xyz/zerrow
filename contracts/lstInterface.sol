@@ -741,17 +741,34 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
     }
 
     //=======================================stake for Gimo=============================================
-    function gimoStake() public payable{
+    function gimoStake() public payable nonReentrant {
+        uint nativeBefore = address(this).balance - msg.value;
+        uint gTokenBefore = IERC20(gToken).balanceOf(address(this));
+
         iLstGimo(lstGimo).stake{value: msg.value}("zerrow");
+
+        _refundTokenDelta(gToken, gTokenBefore);
+        _refundNativeDelta(nativeBefore);
     }
-    function gimoUnstake(uint256 _lsdTokenAmount) public{
+    function gimoUnstake(uint256 _lsdTokenAmount) public nonReentrant {
+        IERC20(gToken).safeTransferFrom(msg.sender, address(this), _lsdTokenAmount);
+        uint nativeBefore = address(this).balance;
+        uint gTokenBefore = IERC20(gToken).balanceOf(address(this));
+
         iLstGimo(lstGimo).unstake(_lsdTokenAmount);
+
+        _refundTokenDelta(gToken, gTokenBefore);
+        _refundNativeDelta(nativeBefore);
     }
     function getRate() public view returns (uint256){
         return iLstGimo(lstGimo).getRate();
     }
-    function withdraw() public{
+    function withdraw() public nonReentrant {
+        uint nativeBefore = address(this).balance;
+
         iLstGimo(lstGimo).withdraw();
+
+        _refundNativeDelta(nativeBefore);
     }
     //-----------------------------------------loop for assets---------------------------------------------
     //  Assets single Lst Deposit

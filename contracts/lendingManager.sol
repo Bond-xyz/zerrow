@@ -487,6 +487,20 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         for (uint i = 0; i < s.length; i++) {
             if (burnAmounts[i] > 0) {
                 iDepositOrLoanCoin(s[i].loanCoin).burnCoin(user, burnAmounts[i]);
+
+                uint totalDeposits = iDepositOrLoanCoin(s[i].depositCoin).totalSupply();
+                if (totalDeposits > 0) {
+                    assetInfo storage a = assetInfos[s[i].asset];
+                    uint oldValue = a.latestDepositCoinValue;
+                    if (oldValue == 0) { oldValue = 1 ether; }
+                    if (burnAmounts[i] >= totalDeposits) {
+                        a.latestDepositCoinValue = 0;
+                        a.latestDepositInterest = 0;
+                    } else {
+                        a.latestDepositCoinValue = oldValue * (totalDeposits - burnAmounts[i]) / totalDeposits;
+                        a.latestDepositInterest = a.latestDepositInterest * (totalDeposits - burnAmounts[i]) / totalDeposits;
+                    }
+                }
             }
         }
         emit BadDebtDeduction(user, block.timestamp);
@@ -700,7 +714,9 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         _socializeBadDebt(user);
 
         uint healthFactorAfter = viewUsersHealthFactor(user);
-        if (LendingManagerLib.totalLendingValue(_loadAssetSnapshots(), user, oracleAddr) != 0 && healthFactorAfter <= healthFactorBefore) revert LiquidationMustImproveHF();
+        if (LendingManagerLib.totalLendingValue(_loadAssetSnapshots(), user, oracleAddr) != 0
+            && healthFactorAfter < 1 ether
+            && healthFactorAfter <= healthFactorBefore) revert LiquidationMustImproveHF();
 
         emit Liquidation(user, msg.sender, liquidateToken, depositToken, liquidateAmount, usedAmount);
     }
