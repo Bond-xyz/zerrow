@@ -229,7 +229,8 @@ library LendingManagerLib {
             && _homogeneousModeLTV < UPPER_SYSTEM_LIMIT
             && _bestDepositInterestRate > 0
             && _bestDepositInterestRate <= 1000
-            && _reserveFactor > 0,
+            && _reserveFactor > 0
+            && _reserveFactor <= UPPER_SYSTEM_LIMIT,
             "Lending Manager: Exceed UPPER_SYSTEM_LIMIT"
         );
     }
