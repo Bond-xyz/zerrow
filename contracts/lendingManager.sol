@@ -193,6 +193,9 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         oracleAddr = _oracleAddr;
         lendingVault = _lendingVault;
         coreAlgorithm = _coreAlgorithm;
+        if (_riskIsolationModeAcceptAssets != riskIsolationModeAcceptAssets && riskIsolationModeAcceptAssets != address(0)) {
+            require(riskIsolationModeLendingNetAmount[riskIsolationModeAcceptAssets] == 0, "Lending Manager: outstanding RIM debt");
+        }
         riskIsolationModeAcceptAssets = _riskIsolationModeAcceptAssets;
     }
 
