@@ -127,8 +127,18 @@ contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrade
         IERC20(token).safeTransfer(msg.sender, excessRaw);
     }
 
+    /// @notice Approve the lendingManager to pull `amount` of `ERC20Addr`.
+    /// @dev    Q-05 audit hardening: use a zero-reset-then-approve pattern
+    ///         instead of safeIncreaseAllowance.  Although current call-flows
+    ///         fully consume each allowance in the same tx (so residual
+    ///         allowance is zero in practice), explicitly resetting to zero
+    ///         first prevents any residual allowance from accumulating if
+    ///         future code paths change.  OZ 4.x safeApprove requires the
+    ///         current allowance to be 0 when setting a non-zero value, so
+    ///         we clear first then set.
     function vaultsERC20Approve(address ERC20Addr,uint amount) external whenNotPaused onlyManager{
-        IERC20(ERC20Addr).safeIncreaseAllowance(lendingManager,amount);
+        IERC20(ERC20Addr).safeApprove(lendingManager, 0);
+        IERC20(ERC20Addr).safeApprove(lendingManager, amount);
     }
 
     function transferNativeToken(address _to) external nonReentrant onlySetter{
