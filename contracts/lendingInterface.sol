@@ -299,22 +299,19 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
 
         (_amountDeposit, _amountLending) = iLendingManager(lendingManager)
             .userDepositAndLendingValue(user);
-        if (operator == 0) {
-            _amountDeposit +=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 1) {
-            _amountDeposit -=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 2) {
-            _amountLending +=
-                (amount * tokenPrice) /
-                1 ether;
-        } else if (operator == 3) {
-            _amountLending -=
-                (amount * tokenPrice) /
-                1 ether;
+        {
+            uint normalizedAmount = amount * 1 ether / (10 ** iDecimals(token).decimals());
+            uint weightedDepositValue = normalizedAmount * tokenPrice / 1 ether * modeLTV / 10000;
+            uint lendingValue = normalizedAmount * tokenPrice / 1 ether;
+            if (operator == 0) {
+                _amountDeposit += weightedDepositValue;
+            } else if (operator == 1) {
+                _amountDeposit -= weightedDepositValue;
+            } else if (operator == 2) {
+                _amountLending += lendingValue;
+            } else if (operator == 3) {
+                _amountLending -= lendingValue;
+            }
         }
         if (_amountLending > 0) {
             userHealthFactor = (_amountDeposit * 1 ether) / _amountLending;
