@@ -651,8 +651,9 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             iSlcOracle(oracleAddr).getPrice(borrowTokenAddr),
             VaultTokensAmount(useTokenAddr)
         );
-        iLendingVaults(lendingVault).vaultsERC20Approve(useTokenAddr, userNeedPaid);
-        IERC20(useTokenAddr).safeTransferFrom(lendingVault, flashLoanFeesAddress, userNeedPaid);
+        uint userNeedPaidRaw = _normalizedToRaw(useTokenAddr, userNeedPaid);
+        iLendingVaults(lendingVault).vaultsERC20Approve(useTokenAddr, userNeedPaidRaw);
+        IERC20(useTokenAddr).safeTransferFrom(lendingVault, flashLoanFeesAddress, userNeedPaidRaw);
         iDepositOrLoanCoin(assetsDepositAndLend[useTokenAddr][0]).burnCoin(user, userNeedPaid);
 
         _beforeUpdate(useTokenAddr);
