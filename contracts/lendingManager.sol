@@ -303,8 +303,12 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         if(_isNew){
             assetsDepositAndLend[_asset] = iCoinFactory(coinFactory).createDeAndLoCoin(_asset);
         }else{
-            assetsDepositAndLend[_asset][0] = iCoinFactory(coinFactory).getDepositCoin(_asset);
-            assetsDepositAndLend[_asset][1] = iCoinFactory(coinFactory).getLoanCoin(_asset);
+            address depositCoin = iCoinFactory(coinFactory).getDepositCoin(_asset);
+            address loanCoin = iCoinFactory(coinFactory).getLoanCoin(_asset);
+            require(depositCoin != address(0), "Lending Manager: deposit coin not found");
+            require(loanCoin != address(0), "Lending Manager: loan coin not found");
+            assetsDepositAndLend[_asset][0] = depositCoin;
+            assetsDepositAndLend[_asset][1] = loanCoin;
         }
 
         emit LicensedAssetsSetup(_asset,
