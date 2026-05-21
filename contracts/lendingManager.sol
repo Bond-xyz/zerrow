@@ -230,7 +230,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         newsetter = address(0);
     }
 
-    function cancelTransferSetter() external onlySetter {
+    function cancelTransferSetter() external {
+        _requireSetter();
         address cancelled = newsetter;
         newsetter = address(0);
         emit TransferSetterCancelled(cancelled);

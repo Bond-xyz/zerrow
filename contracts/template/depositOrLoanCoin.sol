@@ -114,6 +114,7 @@ contract depositOrLoanCoin is Initializable, ERC20NoTransferUpgradeable, Reentra
         addTokens = iLendingManager(manager).getCoinValues(OCoin)[depositOrLoan];
 
         addTokens = _value * 1 ether / addTokens;
+        require(addTokens > 0, "Deposit Or Loan Coin: amount too small");
         userOQCAmount[_account] += addTokens;
         OQCtotalSupply += addTokens;
 
@@ -137,6 +138,7 @@ contract depositOrLoanCoin is Initializable, ERC20NoTransferUpgradeable, Reentra
         burnTokens = iLendingManager(manager).getCoinValues(OCoin)[depositOrLoan];
 
         burnTokens = _value * 1 ether / burnTokens;
+        require(burnTokens > 0, "Deposit Or Loan Coin: amount too small");
         if(userOQCAmount[_account] == burnTokens + 1){
             burnTokens += 1;
         }
