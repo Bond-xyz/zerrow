@@ -276,6 +276,28 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         iDepositOrLoanCoin(coinAddr).mintLockerSetup(tOF);
     }
 
+    /// @notice Update the reward contract on a deposit/loan coin.
+    /// @dev    The lendingManager is the setter on coins it creates, so only
+    ///         this contract can call rewardContractSetup.  The factory's
+    ///         coinResetup cannot work because the factory is not the setter.
+    /// @param _coin            Address of the depositOrLoanCoin to reconfigure.
+    /// @param _rewardContract  New reward contract address.
+    function coinRewardContractSetup(address _coin, address _rewardContract) external {
+        _requireSetter();
+        iDepositOrLoanCoin(_coin).rewardContractSetup(_rewardContract);
+    }
+
+    /// @notice Transfer the setter role on a deposit/loan coin.
+    /// @dev    The lendingManager is the setter on coins it creates, so only
+    ///         this contract can call transferSetter.  The factory cannot do
+    ///         this because it is not the setter.
+    /// @param _coin       Address of the depositOrLoanCoin whose setter to transfer.
+    /// @param _newSetter  Address of the new setter (must accept via acceptSetter).
+    function coinTransferSetter(address _coin, address _newSetter) external {
+        _requireSetter();
+        iDepositOrLoanCoin(_coin).transferSetter(_newSetter);
+    }
+
     function licensedAssetsDeregister(address _asset) external {
         _requireSetter();
         if (licensedAssets[_asset].assetAddr != _asset) revert AssetNotRegistered();
