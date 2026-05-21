@@ -18,8 +18,11 @@ contract zerrowOracleRedstone is Initializable, UUPSUpgradeable {
     // token address => Redstone PriceFeed contract address
     mapping(address => address) public tokenToFeed;
 
+    // Separate rate provider for st0G (defaults to st0gAdr for backwards compat)
+    address public st0gRateProvider;
+
     /// @dev Storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     event TransferSetterCancelled(address indexed cancelledPending);
 
@@ -89,6 +92,14 @@ contract zerrowOracleRedstone is Initializable, UUPSUpgradeable {
     function setSt0gAdr(address _st0gAdr) external onlySetter {
         require(_st0gAdr != address(0), "Zerrow Oracle: st0g cannot be zero");
         st0gAdr = _st0gAdr;
+        if (st0gRateProvider == address(0)) {
+            st0gRateProvider = _st0gAdr;
+        }
+    }
+
+    function setSt0gRateProvider(address _provider) external onlySetter {
+        require(_provider != address(0), "Zerrow Oracle: rate provider cannot be zero");
+        st0gRateProvider = _provider;
     }
 
     // ======================== Price ========================
@@ -118,7 +129,8 @@ contract zerrowOracleRedstone is Initializable, UUPSUpgradeable {
 
     function getPrice(address token) external view returns (uint price) {
         if (token == st0gAdr) {
-            price = getRedstonePrice(token) * iLstGimo(st0gAdr).getRate() / 1 ether;
+            address rateProvider = st0gRateProvider != address(0) ? st0gRateProvider : st0gAdr;
+            price = getRedstonePrice(token) * iLstGimo(rateProvider).getRate() / 1 ether;
         } else {
             price = getRedstonePrice(token);
         }
