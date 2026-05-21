@@ -312,6 +312,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             || IERC20(assetsDepositAndLend[_asset][1]).totalSupply() != 0) revert OutstandingPositions();
         delete licensedAssets[_asset];
         delete assetsDepositAndLend[_asset];
+        delete assetInfos[_asset];
         for (uint i = 0; i < assetsSerialNumber.length; i++) {
             if (assetsSerialNumber[i] == _asset) {
                 assetsSerialNumber[i] = assetsSerialNumber[assetsSerialNumber.length - 1];
