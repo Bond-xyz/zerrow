@@ -534,6 +534,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         slcUnsecuredIssuancesAmount += badDebtValue;
         for (uint i = 0; i < s.length; i++) {
             if (burnAmounts[i] > 0) {
+                _beforeUpdate(s[i].asset);
                 iDepositOrLoanCoin(s[i].loanCoin).burnCoin(user, burnAmounts[i]);
                 _decrementRIMDebt(user, s[i].asset, burnAmounts[i]);
 
@@ -552,6 +553,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                         }
                     }
                 }
+                _assetsValueUpdate(s[i].asset);
             }
         }
         emit BadDebtDeduction(user, block.timestamp);
