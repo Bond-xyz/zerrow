@@ -700,7 +700,9 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         _socializeBadDebt(user);
 
         uint healthFactorAfter = viewUsersHealthFactor(user);
-        if (LendingManagerLib.totalLendingValue(_loadAssetSnapshots(), user, oracleAddr) != 0 && healthFactorAfter <= healthFactorBefore) revert LiquidationMustImproveHF();
+        if (LendingManagerLib.totalLendingValue(_loadAssetSnapshots(), user, oracleAddr) != 0
+            && healthFactorAfter < 1 ether
+            && healthFactorAfter <= healthFactorBefore) revert LiquidationMustImproveHF();
 
         emit Liquidation(user, msg.sender, liquidateToken, depositToken, liquidateAmount, usedAmount);
     }
