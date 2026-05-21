@@ -21,6 +21,8 @@ contract zerrowOracleRedstone is Initializable, UUPSUpgradeable {
     /// @dev Storage gap for future upgrades
     uint256[50] private __gap;
 
+    event TransferSetterCancelled(address indexed cancelledPending);
+
     modifier onlySetter() {
         require(msg.sender == setter, "Zerrow Oracle: Only Setter");
         _;
@@ -54,6 +56,12 @@ contract zerrowOracleRedstone is Initializable, UUPSUpgradeable {
             setter = newsetter;
         }
         newsetter = address(0);
+    }
+
+    function cancelTransferSetter() external onlySetter {
+        address cancelled = newsetter;
+        newsetter = address(0);
+        emit TransferSetterCancelled(cancelled);
     }
 
     function setTokenFeed(address token, address feed) external onlySetter {

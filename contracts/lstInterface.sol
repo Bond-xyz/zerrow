@@ -75,6 +75,15 @@ contract lstInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         pendingAdmin = address(0);
     }
 
+    function cancelTransferAdmin() external {
+        require(msg.sender == admin, "not admin");
+        address cancelled = pendingAdmin;
+        pendingAdmin = address(0);
+        emit TransferAdminCancelled(cancelled);
+    }
+
+    event TransferAdminCancelled(address indexed cancelledPending);
+
     //------------------------------------------------ View ----------------------------------------------------
     function licensedAssets(
         address token
