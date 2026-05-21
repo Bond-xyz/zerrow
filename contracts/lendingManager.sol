@@ -228,6 +228,8 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     function setFloorOfHealthFactor(uint normal, uint homogeneous) external onlySetter{
         require(normal >= 1 ether, "Lending Manager: Normal floor too low");
         require(homogeneous >= 1 ether, "Lending Manager: Homogeneous floor too low");
+        require(normal <= 100 ether, "Lending Manager: Normal floor too high");
+        require(homogeneous <= 100 ether, "Lending Manager: Homogeneous floor too high");
         require(normal > homogeneous, "Lending Manager: Homogeneous floor must be below normal");
         normalFloorOfHealthFactor = normal;
         homogeneousFloorOfHealthFactor = homogeneous;
