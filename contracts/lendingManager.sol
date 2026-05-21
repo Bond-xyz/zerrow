@@ -287,6 +287,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                 && _bestDepositInterestRate > 0
                 && _bestDepositInterestRate <= MAX_BEST_DEPOSIT_INTEREST_RATE
                 && _reserveFactor > 0,"Lending Manager: Exceed UPPER_SYSTEM_LIMIT");
+        require(_reserveFactor <= UPPER_SYSTEM_LIMIT, "reserveFactor exceeds maximum");
         require(licensedAssets[_asset].assetAddr == address(0),"Lending Manager: Asset already registered!");
         require(assetsSerialNumber.length < 49,"Lending Manager: assets can't exceed 50");
         assetsSerialNumber.push(_asset);
@@ -337,6 +338,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                 && _bestDepositInterestRate > 0
                 && _bestDepositInterestRate <= MAX_BEST_DEPOSIT_INTEREST_RATE
                 && _reserveFactor > 0,"Lending Manager: Exceed UPPER_SYSTEM_LIMIT");
+        require(_reserveFactor <= UPPER_SYSTEM_LIMIT, "reserveFactor exceeds maximum");
          _beforeUpdate(_asset);
         licensedAssets[_asset].maximumLTV = _maxLTV;
         licensedAssets[_asset].liquidationPenalty = _liqPenalty;
