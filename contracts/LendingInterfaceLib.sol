@@ -67,7 +67,12 @@ library LendingInterfaceLib {
             if (tokens[i] == ctx.userRIMSetAssets && _amountDeposit[i] > 0) {
                 // RIM debt is stored under the borrow-asset key (riskIsolationModeAcceptAssets),
                 // not the collateral-asset key (userRIMSetAssets).
-                uint rimAmount = iLendingManager(ctx.mgr).userRIMAssetsLendingNetAmount(user, iLendingManager(ctx.mgr).riskIsolationModeAcceptAssets());
+                address acceptAsset = iLendingManager(ctx.mgr).riskIsolationModeAcceptAssets();
+                uint rimShares = iLendingManager(ctx.mgr).userRIMAssetsLendingNetAmount(user, acceptAsset);
+                // FR-M-02: Convert raw OQC shares to interest-inclusive debt value.
+                // shares × coinValue / 1e18 = true debt including accrued interest.
+                uint coinValue = iLendingManager(ctx.mgr).getCoinValues(acceptAsset)[1];
+                uint rimAmount = rimShares * coinValue / 1 ether;
                 userValueUsedRatio = (((rimAmount * 10000) / _amountDeposit[i]) * 1 ether) / assetPrice[i];
                 iLendingManager.licensedAsset memory usefulAsset = iLendingManager(ctx.mgr).licensedAssets(tokens[i]);
                 userMaxUsedRatio = (usefulAsset.maximumLTV * 1 ether) / ctx.normalFloor;
