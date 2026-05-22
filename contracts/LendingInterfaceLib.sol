@@ -287,4 +287,71 @@ library LendingInterfaceLib {
             totalBorrowed[i] = IERC20(depositAndLend[1]).totalSupply();
         }
     }
+
+    /// @dev FR-M-03: Extracted from lstInterface to reduce its bytecode below EIP-170.
+    ///      Uses a struct to avoid stack-too-deep with Solidity 0.8.6.
+    struct LiqEstCtx {
+        uint amountLending;
+        uint amountDeposit;
+        uint liqPrice;
+        uint depPrice;
+        uint upper;
+        uint penalty;
+        uint maxClose;
+        uint maxRepay;
+    }
+
+    function computeTokenLiquidateEstimate(
+        address user,
+        address liquidateToken,
+        address depositToken,
+        address mgr,
+        address oracle
+    ) external view returns (uint[2] memory maxAmounts) {
+        if (iLendingManager(mgr).viewUsersHealthFactor(user) >= 1 ether) {
+            return maxAmounts;
+        }
+        LiqEstCtx memory c;
+        {
+            address[2] memory liqCoins = iLendingManager(mgr).assetsDepositAndLendAddrs(liquidateToken);
+            address[2] memory depCoins = iLendingManager(mgr).assetsDepositAndLendAddrs(depositToken);
+            c.amountLending = iDepositOrLoanCoin(liqCoins[1]).balanceOf(user);
+            c.amountDeposit = iDepositOrLoanCoin(depCoins[0]).balanceOf(user);
+        }
+        if (c.amountLending == 0 || c.amountDeposit == 0) {
+            return maxAmounts;
+        }
+
+        c.liqPrice = iSlcOracle(oracle).getPrice(liquidateToken);
+        c.depPrice = iSlcOracle(oracle).getPrice(depositToken);
+        c.upper = iLendingManager(mgr).UPPER_SYSTEM_LIMIT();
+        c.penalty = iLendingManager(mgr).licensedAssets(depositToken).liquidationPenalty;
+
+        c.maxClose = c.amountLending * iLendingManager(mgr).LIQUIDATION_CLOSE_FACTOR() / c.upper;
+        if (c.maxClose == 0) {
+            c.maxClose = c.amountLending;
+        }
+
+        c.maxRepay = c.amountDeposit * c.depPrice / 1 ether;
+        c.maxRepay = c.maxRepay * c.upper / (c.upper + c.penalty);
+        c.maxRepay = c.maxRepay * 1 ether / c.liqPrice;
+
+        {
+            uint maxRepayNormalized = c.maxClose < c.maxRepay ? c.maxClose : c.maxRepay;
+            if (maxRepayNormalized > c.amountLending) {
+                maxRepayNormalized = c.amountLending;
+            }
+            if (maxRepayNormalized == 0) {
+                return maxAmounts;
+            }
+
+            uint maxSeizeNormalized = maxRepayNormalized
+                * c.liqPrice
+                * (c.upper + c.penalty)
+                / (c.upper * c.depPrice);
+
+            maxAmounts[0] = maxRepayNormalized * (10**iDecimals(liquidateToken).decimals()) / 1 ether;
+            maxAmounts[1] = maxSeizeNormalized * (10**iDecimals(depositToken).decimals()) / 1 ether;
+        }
+    }
 }

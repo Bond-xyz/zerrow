@@ -100,6 +100,10 @@ contract depositOrLoanCoin is Initializable, ERC20NoTransferUpgradeable, Reentra
         }
         newsetter = address(0);
     }
+    /// @dev FR-L-01: Allow current setter to cancel a pending transfer.
+    function cancelTransferSetter() external onlySetter {
+        newsetter = address(0);
+    }
     //----------------------------- function -----------------------------
 
     /**

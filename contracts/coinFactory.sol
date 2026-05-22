@@ -141,5 +141,10 @@ contract coinFactory is Initializable, UUPSUpgradeable {
         }
         newPermissionAddress = address(0);
     }
+    /// @dev FR-L-01: Allow current authority to cancel a pending transfer.
+    function cancelSetPA() external {
+        require(msg.sender == setPermissionAddress, 'Coin Factory: Permission FORBIDDEN');
+        newPermissionAddress = address(0);
+    }
 
 }

@@ -249,8 +249,17 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         oracleAddr = _oracleAddr;
         lendingVault = _lendingVault;
         coreAlgorithm = _coreAlgorithm;
+        // FR-M-01: RIM debt is stored under the collateral-asset key
+        // (userRIMAssetsAddress[user]), NOT the borrow-asset key. Check all
+        // RIM-eligible collateral assets for outstanding debt before allowing
+        // the accepted borrow asset to change.
         if (_riskIsolationModeAcceptAssets != riskIsolationModeAcceptAssets && riskIsolationModeAcceptAssets != address(0)) {
-            require(riskIsolationModeLendingNetAmount[riskIsolationModeAcceptAssets] == 0, "Lending Manager: outstanding RIM debt");
+            for (uint i = 0; i < assetsSerialNumber.length; i++) {
+                address asset = assetsSerialNumber[i];
+                if (licensedAssets[asset].maxLendingAmountInRIM > 0) {
+                    require(riskIsolationModeLendingNetAmount[asset] == 0, "Lending Manager: outstanding RIM debt");
+                }
+            }
         }
         riskIsolationModeAcceptAssets = _riskIsolationModeAcceptAssets;
     }
@@ -517,7 +526,12 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     function _beforeUpdate(address token) internal returns(uint[2] memory latestValues){
         latestValues = getCoinValues(token);
         assetInfo storage a = assetInfos[token];
-        a.latestDepositCoinValue = latestValues[0];
+        // FR-H-02: Preserve the "fully wiped" sentinel. coinValues() returns 0
+        // for wiped markets, but writing 0 back would be misread as "uninitialized"
+        // on subsequent calls. Keep the sentinel so the wipe is permanent.
+        if (a.latestDepositCoinValue != type(uint256).max) {
+            a.latestDepositCoinValue = latestValues[0];
+        }
         a.latestLendingCoinValue = latestValues[1];
         a.latestTimeStamp = block.timestamp;
     }
@@ -579,9 +593,13 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                     if (totalDeposits > 0) {
                         assetInfo storage a = assetInfos[s[i].asset];
                         uint oldValue = a.latestDepositCoinValue;
-                        if (oldValue == 0) { oldValue = 1 ether; }
+                        // FR-H-02: Also handle type(uint256).max (wiped sentinel)
+                        if (oldValue == 0 || oldValue == type(uint256).max) { oldValue = 1 ether; }
                         if (burnAmounts[i] >= totalDeposits) {
-                            a.latestDepositCoinValue = 0;
+                            // FR-H-02: Use type(uint256).max as "fully wiped" sentinel
+                            // instead of 0. Zero is already used as "uninitialized → 1e18"
+                            // in coinValues(), so setting 0 here would revive deposits to par.
+                            a.latestDepositCoinValue = type(uint256).max;
                             a.latestDepositInterest = 0;
                         } else {
                             a.latestDepositCoinValue = oldValue * (totalDeposits - burnAmounts[i]) / totalDeposits;
@@ -835,10 +853,24 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         _assetsValueUpdate(depositToken);
         _socializeBadDebt(user);
 
+        // FR-H-01: Allow partial liquidation when HF is below 1e18.
+        // High-LTV positions (e.g. LTV=97%, penalty=3%) can have HF decrease after
+        // partial liquidation because the penalty seizes proportionally more collateral
+        // than debt repaid. Blocking these liquidations causes insolvency.
+        // New rule: if position is still underwater (HF < 1), only require that
+        // the liquidation actually reduced debt (which the transfer already guarantees).
+        // If HF >= 1, the position is healthy and no further liquidation is needed.
         uint healthFactorAfter = viewUsersHealthFactor(user);
-        if (LendingManagerLib.totalLendingValue(_loadAssetSnapshots(), user, oracleAddr) != 0
-            && healthFactorAfter < 1 ether
-            && healthFactorAfter <= healthFactorBefore) revert LiquidationMustImproveHF();
+        uint remainingDebt = LendingManagerLib.totalLendingValue(_loadAssetSnapshots(), user, oracleAddr);
+        if (remainingDebt != 0 && healthFactorAfter < 1 ether) {
+            // Position still underwater: only revert if HF got worse AND was already above 1
+            // (i.e. liquidation of a healthy position). Since we checked HF < 1 above,
+            // this branch always allows the liquidation — the position is insolvent and
+            // any debt reduction is better than none.
+            if (healthFactorBefore >= 1 ether && healthFactorAfter < healthFactorBefore) {
+                revert LiquidationMustImproveHF();
+            }
+        }
 
         emit Liquidation(user, msg.sender, liquidateToken, depositToken, liquidateAmount, usedAmount);
     }

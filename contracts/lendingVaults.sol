@@ -85,6 +85,10 @@ contract lendingVaults is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrade
         }
         newsetter = address(0);
     }
+    /// @dev FR-L-01: Allow current setter to cancel a pending transfer.
+    function cancelTransferSetter() external onlySetter {
+        newsetter = address(0);
+    }
     function setManager(address _manager) external onlySetter{
         require(_manager != address(0), "Lending Vault: Manager cannot be zero");
         lendingManager = _manager;
