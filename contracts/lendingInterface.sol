@@ -453,10 +453,14 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         }
     }
 
-    /// @notice Pull W0G from msg.sender, unwrap to native, and send to msg.sender.
-    ///         Used by withdrawal/borrow helpers where the manager sends W0G directly
-    ///         to the user and the interface must intercept to unwrap.
-    /// @dev    Requires the caller to have approved this contract for W0G spending.
+    /// @notice Pull W0G from msg.sender, unwrap to native 0G, and send to msg.sender.
+    ///         Used by withdrawDeposit2, withdrawDepositMax2, and lendAsset2 when
+    ///         tokenAddr == W0G. The manager sends W0G directly to the user, so this
+    ///         function pulls it back for unwrapping.
+    /// @dev    FR-QA-01: The caller MUST have approved this contract for W0G spending
+    ///         BEFORE calling withdrawDeposit2/withdrawDepositMax2/lendAsset2 with W0G.
+    ///         Without the allowance, the safeTransferFrom below will revert.
+    ///         Frontend should ensure W0G approval to lendingInterface exists.
     function _pullUnwrapAndSendNative(uint amount) internal {
         IERC20(W0G).safeTransferFrom(msg.sender, address(this), amount);
         iw0G(W0G).withdraw(amount);

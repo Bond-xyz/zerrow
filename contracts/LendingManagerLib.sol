@@ -132,11 +132,21 @@ library LendingManagerLib {
         uint latestTimeStamp
     ) external view returns (uint[2] memory currentValue) {
         uint tempVaule = (block.timestamp - latestTimeStamp) * 1 ether / (ONE_YEAR * UPPER_SYSTEM_LIMIT);
-        currentValue[0] = latestDepositCoinValue + tempVaule * latestDepositInterest;
-        currentValue[1] = latestLendingCoinValue + tempVaule * latestLendingInterest;
-        if (currentValue[0] == 0) {
-            currentValue[0] = 1 ether;
+
+        // FR-H-02: type(uint256).max is the "fully wiped" sentinel set by
+        // _socializeBadDebt when bad debt >= total deposits. Deposits are
+        // worthless in that market — return 0 instead of reviving to 1e18.
+        if (latestDepositCoinValue == type(uint256).max) {
+            currentValue[0] = 0;
+        } else {
+            currentValue[0] = latestDepositCoinValue + tempVaule * latestDepositInterest;
+            // Zero means uninitialized — set to par (1e18)
+            if (currentValue[0] == 0) {
+                currentValue[0] = 1 ether;
+            }
         }
+
+        currentValue[1] = latestLendingCoinValue + tempVaule * latestLendingInterest;
         if (currentValue[1] == 0) {
             currentValue[1] = 1 ether;
         }
@@ -260,9 +270,16 @@ library LendingManagerLib {
         uint depositValue;
         uint lendingValue;
         for (uint i = 0; i < s.length; i++) {
+            // FR-H-03: Read balances BEFORE calling the oracle. Skip the
+            // price fetch when the user has zero balance on both sides.
+            // This prevents a stale/reverting oracle feed for an unrelated
+            // zero-balance asset from blocking all liquidations.
+            uint depositBal = IERC20(s[i].depositCoin).balanceOf(user);
+            uint loanBal = IERC20(s[i].loanCoin).balanceOf(user);
+            if (depositBal == 0 && loanBal == 0) continue;
             uint price = iSlcOracle(oracle).getPrice(s[i].asset);
-            depositValue += IERC20(s[i].depositCoin).balanceOf(user) * price / 1 ether;
-            lendingValue += IERC20(s[i].loanCoin).balanceOf(user) * price / 1 ether;
+            depositValue += depositBal * price / 1 ether;
+            lendingValue += loanBal * price / 1 ether;
         }
 
         burnAmounts = new uint[](s.length);
