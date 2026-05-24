@@ -565,15 +565,33 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     /// @dev Decrement RIM debt counters when loan coins are burned outside of repayLoan.
     ///      Safe to call for any user/token; no-ops when user is not in RIM mode or
     ///      the token is not the RIM-accepted asset.
-    function _decrementRIMDebt(address user, address token, uint amount) internal {
+    /// @dev FR-M-02: Reads post-burn OQC shares from the loan-coin contract
+    ///      and syncs the RIM mappings to match. Because this function is always
+    ///      called AFTER burnCoin(), reading the actual userOQCAmount captures
+    ///      the exact share delta including burnCoin's ±1 dust adjustments.
+    function _decrementRIMDebt(address user, address token, uint /*amount*/) internal {
         if (userMode[user] != 1 || token != riskIsolationModeAcceptAssets) {
             return;
         }
         address rimAsset = userRIMAssetsAddress[user];
-        uint currentRIM = userRIMAssetsLendingNetAmount[user][token];
-        uint decrement = amount > currentRIM ? currentRIM : amount;
-        userRIMAssetsLendingNetAmount[user][token] -= decrement;
-        riskIsolationModeLendingNetAmount[rimAsset] -= decrement;
+        address loanCoin = assetsDepositAndLend[riskIsolationModeAcceptAssets][1];
+
+        // Read actual post-burn shares from the canonical source.
+        uint currentShares = iDepositOrLoanCoin(loanCoin).userOQCAmount(user);
+        uint oldShares = userRIMAssetsLendingNetAmount[user][token];
+
+        // Compute the real share delta burned by the loan-coin contract.
+        uint delta = oldShares > currentShares ? oldShares - currentShares : 0;
+
+        // Sync user-level counter with actual OQC state.
+        userRIMAssetsLendingNetAmount[user][token] = currentShares;
+
+        // Decrement global counter defensively.
+        if (riskIsolationModeLendingNetAmount[rimAsset] >= delta) {
+            riskIsolationModeLendingNetAmount[rimAsset] -= delta;
+        } else {
+            riskIsolationModeLendingNetAmount[rimAsset] = 0;
+        }
     }
 
     function _socializeBadDebt(address user) internal {
@@ -623,6 +641,10 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         );
     }
 
+    /// @dev FR-M-02: RIM counters now track raw OQC shares (Original Quantity Coin)
+    ///      instead of value-adjusted balances. This ensures that passive interest
+    ///      accrual on dormant borrowers is always reflected in the global cap check,
+    ///      because totalShares * currentCoinValue = true interest-inclusive debt.
     function _updateRIMAccounting(address user, address tokenAddr, uint amountNormalize, bool isLend) internal {
         address rimAsset = userRIMAssetsAddress[user];
         uint maxRIM = licensedAssets[rimAsset].maxLendingAmountInRIM;
@@ -630,13 +652,35 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             if (maxRIM == 0) revert WrongRIMToken();
         }
         if (tokenAddr != riskIsolationModeAcceptAssets) revert WrongRIMToken();
-        uint currentBal = IERC20(assetsDepositAndLend[riskIsolationModeAcceptAssets][1]).balanceOf(user);
-        uint tempAmount = isLend ? currentBal + amountNormalize : currentBal - amountNormalize;
+
+        address loanCoin = assetsDepositAndLend[riskIsolationModeAcceptAssets][1];
+
+        // Read the user's current raw OQC shares (interest-independent).
+        uint currentShares = iDepositOrLoanCoin(loanCoin).userOQCAmount(user);
+
+        // Convert the normalized borrow/repay amount to share units using
+        // the current lending coin value. getCoinValues() extrapolates to
+        // block.timestamp, so the result is the same before/after _beforeUpdate.
+        uint coinValue = getCoinValues(riskIsolationModeAcceptAssets)[1];
+        uint sharesDelta = amountNormalize * 1 ether / coinValue;
+
+        // Predict the user's OQC share count after the pending mint/burn.
+        uint newShares = isLend ? currentShares + sharesDelta : currentShares - sharesDelta;
+
+        // Delta-update global counter (in shares):
+        // global = global - oldUserShares + newUserShares
         riskIsolationModeLendingNetAmount[rimAsset] = riskIsolationModeLendingNetAmount[rimAsset]
                                                      - userRIMAssetsLendingNetAmount[user][tokenAddr]
-                                                     + tempAmount;
-        userRIMAssetsLendingNetAmount[user][tokenAddr] = tempAmount;
-        if (isLend && riskIsolationModeLendingNetAmount[rimAsset] > maxRIM) revert RIMBorrowLimitExceeded();
+                                                     + newShares;
+        userRIMAssetsLendingNetAmount[user][tokenAddr] = newShares;
+
+        // Cap check: convert total shares to interest-inclusive debt value.
+        // This captures ALL accrued interest, including dormant borrowers,
+        // because totalShares * coinValue always equals the true total debt.
+        if (isLend) {
+            uint totalDebtValue = riskIsolationModeLendingNetAmount[rimAsset] * coinValue / 1 ether;
+            if (totalDebtValue > maxRIM) revert RIMBorrowLimitExceeded();
+        }
     }
 
     function _checkDepositMode(address tokenAddr, address user) internal view {

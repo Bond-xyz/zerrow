@@ -11,4 +11,6 @@ interface iDepositOrLoanCoin{
     function mintLockerSetup(bool tOF) external;
     function rewardContractSetup(address _rewardContract) external;
     function transferSetter(address _set) external;
+    /// @dev FR-M-02: Raw share count (Original Quantity Coin) for share-based RIM tracking.
+    function userOQCAmount(address account) external view returns (uint);
 }

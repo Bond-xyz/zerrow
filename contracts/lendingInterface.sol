@@ -364,23 +364,28 @@ contract lendingInterface is Initializable, UUPSUpgradeable, ReentrancyGuardUpgr
         return iLendingManager(lendingManager).homogeneousFloorOfHealthFactor();
     }
 
+    /// @dev FR-M-02: Internal mappings now store raw OQC shares.
+    ///      Convert shares to interest-inclusive debt value for external consumers.
     function userRIMAssetsLendingNetAmount(
         address user,
         address token
     ) public view returns (uint) {
-        return
-            iLendingManager(lendingManager).userRIMAssetsLendingNetAmount(
-                user,
-                token
-            );
+        uint shares = iLendingManager(lendingManager).userRIMAssetsLendingNetAmount(user, token);
+        if (shares == 0) return 0;
+        uint coinValue = iLendingManager(lendingManager).getCoinValues(token)[1];
+        return shares * coinValue / 1 ether;
     }
+    /// @dev FR-M-02: Convert global RIM share counter to interest-inclusive debt value.
+    ///      The mapping key is the collateral asset (rimAsset), but the coin value
+    ///      comes from the borrow asset (riskIsolationModeAcceptAssets).
     function riskIsolationModeLendingNetAmount(
         address token
     ) public view returns (uint) {
-        return
-            iLendingManager(lendingManager).riskIsolationModeLendingNetAmount(
-                token
-            );
+        uint shares = iLendingManager(lendingManager).riskIsolationModeLendingNetAmount(token);
+        if (shares == 0) return 0;
+        address acceptAsset = iLendingManager(lendingManager).riskIsolationModeAcceptAssets();
+        uint coinValue = iLendingManager(lendingManager).getCoinValues(acceptAsset)[1];
+        return shares * coinValue / 1 ether;
     }
 
     function usersRiskDetails(
