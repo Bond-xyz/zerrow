@@ -540,6 +540,22 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         assetInfo storage a = assetInfos[token];
         if (a.latestTimeStamp != block.timestamp) revert NotAfterBeforeUpdate();
 
+        // R2-H-01: If the market was fully wiped by _socializeBadDebt(), the
+        // sentinel must be preserved. Value-based totalSupply() reads zero
+        // because getCoinValues returns 0 for wiped markets, but raw OQC
+        // shares may still exist. Resetting to 1 ether would revive those
+        // worthless shares back to par.
+        if (a.latestDepositCoinValue == type(uint256).max) {
+            a.latestLendingCoinValue = 1 ether;
+            a.latestTimeStamp = block.timestamp;
+            a.latestDepositInterest = 0;
+            a.latestLendingInterest = 0;
+            latestInterest[0] = 0;
+            latestInterest[1] = 0;
+            emit DepositAndLoanInterest(token, 0, 0, block.timestamp);
+            return latestInterest;
+        }
+
         // When both deposit and loan supplies are zero the market is idle.
         // Reset coin values and timestamp to baseline so the next deposit
         // does not apply elapsed idle time against stale rate data.
