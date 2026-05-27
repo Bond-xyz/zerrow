@@ -77,6 +77,7 @@ contract BadDebtSentinelTest is TestBase {
     address public setter     = address(this);
     address public depositor  = address(0xD1);  // deposits tokenB into pool
     address public borrower   = address(0xB1);  // borrows tokenB, goes insolvent
+    address public bob        = address(0xB2);  // keeps tokenB debt after borrower is socialized
     address public liquidator = address(0xAA);
 
     // ---- Coin addresses ----
@@ -209,6 +210,8 @@ contract BadDebtSentinelTest is TestBase {
         tokenB.mint(address(this), 1_000_000e6);
         tokenA.mint(borrower, 100 ether);
         tokenB.mint(borrower, 100_000e6);
+        tokenA.mint(bob, 100 ether);
+        tokenB.mint(bob, 100_000e6);
         tokenA.mint(liquidator, 100 ether);
         tokenB.mint(liquidator, 200_000e6);
         tokenA.mint(depositor, 100 ether);
@@ -220,6 +223,11 @@ contract BadDebtSentinelTest is TestBase {
         vm.prank(borrower);
         tokenA.approve(address(manager), type(uint256).max);
         vm.prank(borrower);
+        tokenB.approve(address(manager), type(uint256).max);
+
+        vm.prank(bob);
+        tokenA.approve(address(manager), type(uint256).max);
+        vm.prank(bob);
         tokenB.approve(address(manager), type(uint256).max);
 
         vm.prank(liquidator);
@@ -236,6 +244,8 @@ contract BadDebtSentinelTest is TestBase {
         vm.prank(borrower);
         manager.setInterfaceApproval(true);
         vm.prank(depositor);
+        manager.setInterfaceApproval(true);
+        vm.prank(bob);
         manager.setInterfaceApproval(true);
         vm.prank(liquidator);
         manager.setInterfaceApproval(true);
@@ -374,6 +384,53 @@ contract BadDebtSentinelTest is TestBase {
             depositorShares,
             "Depositor's raw OQC shares should be unchanged (only value was wiped)"
         );
+    }
+
+    /// @notice Full-wipe deposit sentinel must not reduce another borrower's
+    ///         already-accrued loan balance while loan supply remains nonzero.
+    function test_FullWipePreservesLendingCoinValueWhenOtherBorrowerHasDebt() public {
+        // --- Step 1: Seed liquidity and create two borrowers ---
+        manager.assetsDeposit(address(tokenB), 5_200e6, depositor);
+        manager.assetsDeposit(address(tokenA), 21 ether, borrower);
+        manager.lendAsset(address(tokenB), 5_000e6, borrower);
+
+        manager.assetsDeposit(address(tokenA), 2 ether, bob);
+        manager.lendAsset(address(tokenB), 100e6, bob);
+
+        uint bobShares = iDepositOrLoanCoin(loanCoinB).userOQCAmount(bob);
+        assertGt(bobShares, 0, "Bob should have loan shares");
+
+        // --- Step 2: Accrue interest before Alice's collateral crash ---
+        _warpAndRefreshOracle(365 days);
+
+        uint[2] memory preValues = manager.getCoinValues(address(tokenB));
+        uint bobDebtBefore = IERC20(loanCoinB).balanceOf(bob);
+        uint loanSupplyBefore = IERC20(loanCoinB).totalSupply();
+
+        assertGt(preValues[1], 1 ether, "Lending coin value should accrue before socialization");
+        assertGt(bobDebtBefore, 100 ether, "Bob's debt should include accrued interest");
+        assertGt(loanSupplyBefore, bobDebtBefore, "Alice and Bob should both have outstanding debt");
+
+        // --- Step 3: Alice becomes insolvent and her bad debt fully wipes deposits ---
+        feedA.setPrice(1e8);
+        feedA.setUpdatedAt(block.timestamp);
+
+        _liquidateToSocialize(borrower);
+
+        // --- Step 4: Deposit side is wiped, but Bob's loan accounting is preserved ---
+        (uint rawDepositCoinValue, uint rawLendingCoinValue,, uint rawLendingInterest) =
+            manager.assetsTimeDependentParameter(address(tokenB));
+        uint[2] memory postValues = manager.getCoinValues(address(tokenB));
+        uint bobDebtAfter = IERC20(loanCoinB).balanceOf(bob);
+        uint loanSupplyAfter = IERC20(loanCoinB).totalSupply();
+
+        assertEq(rawDepositCoinValue, type(uint256).max, "Deposit sentinel should remain set");
+        assertEq(postValues[0], 0, "Deposit value should be zero after full wipe");
+        assertGt(loanSupplyAfter, 0, "Bob's loan supply should remain outstanding");
+        assertGe(rawLendingCoinValue, preValues[1], "Stored lending coin value must not decrease");
+        assertGe(postValues[1], preValues[1], "Current lending coin value must not decrease");
+        assertGe(bobDebtAfter, bobDebtBefore, "Bob's accrued debt must not be reduced");
+        assertEq(rawLendingInterest, 0, "Future lending interest should be frozen after sentinel");
     }
 
     /// @notice Partial bad-debt socialization should NOT set the sentinel.

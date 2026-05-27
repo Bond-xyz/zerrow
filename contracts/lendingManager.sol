@@ -541,12 +541,15 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         if (a.latestTimeStamp != block.timestamp) revert NotAfterBeforeUpdate();
 
         // R2-H-01: If the market was fully wiped by _socializeBadDebt(), the
-        // sentinel must be preserved. Value-based totalSupply() reads zero
-        // because getCoinValues returns 0 for wiped markets, but raw OQC
-        // shares may still exist. Resetting to 1 ether would revive those
-        // worthless shares back to par.
+        // deposit sentinel must be preserved. Value-based deposit totalSupply()
+        // reads zero because getCoinValues returns 0 for wiped markets, but raw
+        // OQC shares may still exist. Resetting the deposit side to 1 ether
+        // would revive those worthless shares back to par. The lending side can
+        // only be reset when no loan value remains outstanding.
         if (a.latestDepositCoinValue == type(uint256).max) {
-            a.latestLendingCoinValue = 1 ether;
+            if (IERC20(assetsDepositAndLend[token][1]).totalSupply() == 0) {
+                a.latestLendingCoinValue = 1 ether;
+            }
             a.latestTimeStamp = block.timestamp;
             a.latestDepositInterest = 0;
             a.latestLendingInterest = 0;
