@@ -9,14 +9,18 @@ import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/islcoracle.sol";
-import "./interfaces/iDecimals.sol";
 
-import "./interfaces/iCoinFactory.sol";
 import "./interfaces/iDepositOrLoanCoin.sol";
 import "./interfaces/iLendingCoreAlgorithm.sol";
 import "./interfaces/iLendingVaults.sol";
 import "./interfaces/iUserFlashLoan.sol";
+import "./LendingManagerAdminLib.sol";
+import "./LendingManagerAssetLib.sol";
 import "./LendingManagerLib.sol";
+import "./LendingManagerModeLib.sol";
+import "./LendingManagerRIMLib.sol";
+import "./LendingManagerSnapshotLib.sol";
+import "./LendingManagerTypes.sol";
 
 /// @custom:oz-upgrades-unsafe-allow constructor
 contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
@@ -51,35 +55,15 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     //bestDepositInterestRate   4%    4%  4.5% 4.6%   6%
 
 
-    struct licensedAsset{
-        address assetAddr;
-        uint    maximumLTV;               // loan-to-value (LTV) ratio
-        uint    liquidationPenalty;       // MAX = UPPER_SYSTEM_LIMIT/5 ,default is 500(5%)
-        uint    bestLendingRatio;         // MAX = UPPER_SYSTEM_LIMIT , setting NOT more than 9000
-        uint    bestDepositInterestRate ; // MAX = UPPER_SYSTEM_LIMIT , setting NOT more than 1000
-        uint    maxLendingAmountInRIM;    // default is 0, means no limits; if > 0, have limits : 1 ether = 1 slc
-        uint    reserveFactor;            // default is 1000, (10%)
-        uint8   lendingModeNum;           // Risk Isolation Mode: 1 ;  USDT  USDC : 2  ;
-        uint    homogeneousModeLTV;       // USDT  USDC : 97%  ;
-    }
-
-    struct assetInfo{
-        uint    latestDepositCoinValue;
-        uint    latestLendingCoinValue;
-        uint    latestDepositInterest;
-        uint    latestLendingInterest;
-        uint    latestTimeStamp;
-    }
-
     mapping (address=>bool) public xInterface;
     address[] public interfaceArray;
     mapping(address => mapping(address => bool)) public interfaceApproval;
 
-    mapping(address => licensedAsset) public licensedAssets;
+    mapping(address => LendingManagerTypes.LicensedAsset) public licensedAssets;
     mapping(address => address[2]) public assetsDepositAndLend;
     address[] public assetsSerialNumber;
 
-    mapping(address => assetInfo) public assetInfos;
+    mapping(address => LendingManagerTypes.AssetInfo) public assetInfos;
     mapping(address => mapping(address => uint)) public userRIMAssetsLendingNetAmount;
     mapping(address => uint) public riskIsolationModeLendingNetAmount; //RIM  Risk Isolation Mode
     mapping(address => address) public userRIMAssetsAddress;
@@ -191,7 +175,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     /// @dev Required by UUPSUpgradeable
-    function _authorizeUpgrade(address) internal override {
+    function _authorizeUpgrade(address) internal view override {
         _requireSetter();
     }
 
@@ -218,23 +202,15 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     function transferSetter(address _set) external {
-        _requireSetter();
-        if (_set == address(0)) revert CannotTransferToZero();
-        newsetter = _set;
+        newsetter = LendingManagerAdminLib.transferSetter(msg.sender, setter, _set);
     }
     function acceptSetter(bool _TorF) external {
-        if (msg.sender != newsetter) revert PermissionForbidden();
-        if(_TorF){
-            setter = newsetter;
-        }
-        newsetter = address(0);
+        (setter, newsetter) = LendingManagerAdminLib.acceptSetter(msg.sender, newsetter, setter, _TorF);
     }
 
     function cancelTransferSetter() external {
-        _requireSetter();
-        address cancelled = newsetter;
+        LendingManagerAdminLib.cancelTransferSetter(msg.sender, setter, newsetter);
         newsetter = address(0);
-        emit TransferSetterCancelled(cancelled);
     }
 
     function setup( address _coinFactory,
@@ -242,73 +218,57 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                     address _riskIsolationModeAcceptAssets,
                     address _coreAlgorithm,
                     address _oracleAddr ) external {
-        _requireSetter();
-        if (_coinFactory == address(0) || _lendingVault == address(0)
-            || _coreAlgorithm == address(0) || _oracleAddr == address(0)) revert ZeroAddress();
+        LendingManagerAdminLib.validateSetup(
+            licensedAssets,
+            assetsSerialNumber,
+            riskIsolationModeLendingNetAmount,
+            msg.sender,
+            setter,
+            riskIsolationModeAcceptAssets,
+            _coinFactory,
+            _lendingVault,
+            _riskIsolationModeAcceptAssets,
+            _coreAlgorithm,
+            _oracleAddr
+        );
         coinFactory = _coinFactory;
         oracleAddr = _oracleAddr;
         lendingVault = _lendingVault;
         coreAlgorithm = _coreAlgorithm;
-        // FR-M-01: RIM debt is stored under the collateral-asset key
-        // (userRIMAssetsAddress[user]), NOT the borrow-asset key. Check all
-        // RIM-eligible collateral assets for outstanding debt before allowing
-        // the accepted borrow asset to change.
-        if (_riskIsolationModeAcceptAssets != riskIsolationModeAcceptAssets && riskIsolationModeAcceptAssets != address(0)) {
-            for (uint i = 0; i < assetsSerialNumber.length; i++) {
-                address asset = assetsSerialNumber[i];
-                if (licensedAssets[asset].maxLendingAmountInRIM > 0) {
-                    require(riskIsolationModeLendingNetAmount[asset] == 0, "Lending Manager: outstanding RIM debt");
-                }
-            }
-        }
         riskIsolationModeAcceptAssets = _riskIsolationModeAcceptAssets;
     }
 
     function xInterfacesetting(address _xInterface, bool _ToF)external {
-        _requireSetter();
-        uint lengthTemp = interfaceArray.length;
-        if(_ToF == false){
-            xInterface[_xInterface] = false;
-            // Bump version so all prior approvals for this interface become stale
-            interfaceVersion[_xInterface] += 1;
-            for(uint i = 0; i != lengthTemp; i++){
-                if(interfaceArray[i] == _xInterface){
-                    interfaceArray[i] = interfaceArray[lengthTemp -1];
-                    interfaceArray.pop();
-                    break;
-                }
-            }
-        }else if(xInterface[_xInterface] == false){
-            xInterface[_xInterface] = true;
-            interfaceArray.push(_xInterface);
-        }
-        emit InterfaceSetup( _xInterface, _ToF);
+        LendingManagerAdminLib.setInterface(
+            xInterface,
+            interfaceArray,
+            interfaceVersion,
+            msg.sender,
+            setter,
+            _xInterface,
+            _ToF
+        );
     }
 
     function setInterfaceApproval(bool approved) external {
-        uint lengthTemp = interfaceArray.length;
-        for(uint i = 0; i != lengthTemp; i++){
-            interfaceApproval[msg.sender][interfaceArray[i]] = approved;
-            interfaceApprovalVersion[msg.sender][interfaceArray[i]] = interfaceVersion[interfaceArray[i]];
-            emit InterfaceApproval(msg.sender, interfaceArray[i], approved);
-        }
+        LendingManagerAdminLib.setInterfaceApproval(
+            interfaceArray,
+            interfaceApproval,
+            interfaceVersion,
+            interfaceApprovalVersion,
+            msg.sender,
+            approved
+        );
     }
 
     function setFloorOfHealthFactor(uint normal, uint homogeneous) external {
-        _requireSetter();
-        if (normal < 1 ether) revert NormalFloorTooLow();
-        if (homogeneous < 1 ether) revert HomogeneousFloorTooLow();
-        if (normal > 100 ether) revert NormalFloorTooHigh();
-        if (homogeneous > 100 ether) revert HomogeneousFloorTooHigh();
-        if (normal <= homogeneous) revert HomogeneousFloorMustBeBelowNormal();
+        LendingManagerAdminLib.validateFloorOfHealthFactor(msg.sender, setter, normal, homogeneous);
         normalFloorOfHealthFactor = normal;
         homogeneousFloorOfHealthFactor = homogeneous;
-        emit FloorOfHealthFactorSetup( normal, homogeneous);
     }
 
     function coinMintLockerSetup(address coinAddr, bool tOF) external {
-        _requireSetter();
-        iDepositOrLoanCoin(coinAddr).mintLockerSetup(tOF);
+        LendingManagerAdminLib.coinMintLockerSetup(msg.sender, setter, coinAddr, tOF);
     }
 
     /// @notice Update the reward contract on a deposit/loan coin.
@@ -318,8 +278,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     /// @param _coin            Address of the depositOrLoanCoin to reconfigure.
     /// @param _rewardContract  New reward contract address.
     function coinRewardContractSetup(address _coin, address _rewardContract) external {
-        _requireSetter();
-        iDepositOrLoanCoin(_coin).rewardContractSetup(_rewardContract);
+        LendingManagerAdminLib.coinRewardContractSetup(msg.sender, setter, _coin, _rewardContract);
     }
 
     /// @notice Transfer the setter role on a deposit/loan coin.
@@ -329,122 +288,70 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     /// @param _coin       Address of the depositOrLoanCoin whose setter to transfer.
     /// @param _newSetter  Address of the new setter (must accept via acceptSetter).
     function coinTransferSetter(address _coin, address _newSetter) external {
-        _requireSetter();
-        iDepositOrLoanCoin(_coin).transferSetter(_newSetter);
+        LendingManagerAdminLib.coinTransferSetter(msg.sender, setter, _coin, _newSetter);
     }
 
     function licensedAssetsDeregister(address _asset) external {
         _requireSetter();
-        if (licensedAssets[_asset].assetAddr != _asset) revert AssetNotRegistered();
-        if (IERC20(assetsDepositAndLend[_asset][0]).totalSupply() != 0
-            || IERC20(assetsDepositAndLend[_asset][1]).totalSupply() != 0) revert OutstandingPositions();
-        delete licensedAssets[_asset];
-        delete assetsDepositAndLend[_asset];
-        delete assetInfos[_asset];
-        for (uint i = 0; i < assetsSerialNumber.length; i++) {
-            if (assetsSerialNumber[i] == _asset) {
-                assetsSerialNumber[i] = assetsSerialNumber[assetsSerialNumber.length - 1];
-                assetsSerialNumber.pop();
-                break;
-            }
-        }
-        emit LicensedAssetsDeregistered(_asset);
+        LendingManagerAssetLib.deregister(licensedAssets, assetsDepositAndLend, assetInfos, assetsSerialNumber, _asset);
     }
 
-    function licensedAssetsRegister(address _asset,
-                                    uint  _maxLTV,
-                                    uint  _liqPenalty,
-                                    uint  _maxLendingAmountInRIM,
-                                    uint  _bestLendingRatio,
-                                    uint  _reserveFactor,
-                                    uint8 _lendingModeNum,
-                                    uint  _homogeneousModeLTV,
-                                    uint  _bestDepositInterestRate,
-                                    bool  _isNew) public {
+    function licensedAssetsRegister(address,
+                                    uint,
+                                    uint,
+                                    uint,
+                                    uint,
+                                    uint,
+                                    uint8,
+                                    uint,
+                                    uint,
+                                    bool) external {
         _requireSetter();
-        LendingManagerLib.validateAssetParams(_maxLTV, _liqPenalty, _bestLendingRatio, _homogeneousModeLTV, _bestDepositInterestRate, _reserveFactor);
-        if (licensedAssets[_asset].assetAddr != address(0)) revert AssetAlreadyRegistered();
-        if (assetsSerialNumber.length >= 49) revert TooManyAssets();
-        assetsSerialNumber.push(_asset);
-        _setAssetParams(_asset, _maxLTV, _liqPenalty, _maxLendingAmountInRIM, _bestLendingRatio, _reserveFactor, _lendingModeNum, _homogeneousModeLTV, _bestDepositInterestRate);
-
-        if(_isNew){
-            assetsDepositAndLend[_asset] = iCoinFactory(coinFactory).createDeAndLoCoin(_asset);
-        }else{
-            address depositCoin = iCoinFactory(coinFactory).getDepositCoin(_asset);
-            address loanCoin = iCoinFactory(coinFactory).getLoanCoin(_asset);
-            require(depositCoin != address(0), "Lending Manager: deposit coin not found");
-            require(loanCoin != address(0), "Lending Manager: loan coin not found");
-            assetsDepositAndLend[_asset][0] = depositCoin;
-            assetsDepositAndLend[_asset][1] = loanCoin;
-        }
+        LendingManagerAssetLib.registerFromCalldata(
+            licensedAssets,
+            assetsDepositAndLend,
+            assetsSerialNumber,
+            coinFactory,
+            msg.data
+        );
     }
 
     function licensedAssetsReset(address _asset,
-                                uint _maxLTV,
-                                uint _liqPenalty,
-                                uint _maxLendingAmountInRIM,
-                                uint _bestLendingRatio,
-                                uint  _reserveFactor,
-                                uint8 _lendingModeNum,
-                                uint _homogeneousModeLTV,
-                                uint _bestDepositInterestRate) public {
+                                uint,
+                                uint,
+                                uint,
+                                uint,
+                                uint,
+                                uint8,
+                                uint,
+                                uint) external {
         _requireSetter();
-        if (licensedAssets[_asset].assetAddr != _asset) revert AssetNotRegistered();
-        LendingManagerLib.validateAssetParams(_maxLTV, _liqPenalty, _bestLendingRatio, _homogeneousModeLTV, _bestDepositInterestRate, _reserveFactor);
         _beforeUpdate(_asset);
-        _setAssetParams(_asset, _maxLTV, _liqPenalty, _maxLendingAmountInRIM, _bestLendingRatio, _reserveFactor, _lendingModeNum, _homogeneousModeLTV, _bestDepositInterestRate);
+        LendingManagerAssetLib.resetFromCalldata(
+            licensedAssets,
+            msg.data
+        );
         _assetsValueUpdate(_asset);
     }
 
-    function _setAssetParams(address _asset, uint _maxLTV, uint _liqPenalty, uint _maxLendingAmountInRIM, uint _bestLendingRatio, uint _reserveFactor, uint8 _lendingModeNum, uint _homogeneousModeLTV, uint _bestDepositInterestRate) internal {
-        licensedAsset storage la = licensedAssets[_asset];
-        la.assetAddr = _asset;
-        la.maximumLTV = _maxLTV;
-        la.liquidationPenalty = _liqPenalty;
-        la.maxLendingAmountInRIM = _maxLendingAmountInRIM;
-        la.bestLendingRatio = _bestLendingRatio;
-        la.lendingModeNum = _lendingModeNum;
-        la.homogeneousModeLTV = _homogeneousModeLTV;
-        la.bestDepositInterestRate = _bestDepositInterestRate;
-        la.reserveFactor = _reserveFactor;
-        emit LicensedAssetsSetup(_asset, _maxLTV, _liqPenalty, _maxLendingAmountInRIM, _bestLendingRatio, _reserveFactor, _lendingModeNum, _homogeneousModeLTV, _bestDepositInterestRate);
-    }
-
-    function userModeSetting(uint8 _mode,address _userRIMAssetsAddress, address user) public {
+    function userModeSetting(uint8 _mode,address _userRIMAssetsAddress, address user) external {
         _requireInterface(user);
-        LendingManagerLib.AssetSnapshot[] memory s = _loadAssetSnapshots();
-        if (LendingManagerLib.totalLendingValue(s, user, oracleAddr) != 0
-            || LendingManagerLib.totalDepositValue(s, user, oracleAddr) != 0) revert PositionsNotCleared();
-        if (_mode > 1 && !LendingManagerLib.modeIsRegistered(s, _mode)) revert UnknownMode();
-
-        if(_mode == 1){
-            if (licensedAssets[_userRIMAssetsAddress].maxLendingAmountInRIM == 0) revert Mode1NeedsRIMAsset();
-        } else {
-            if (_userRIMAssetsAddress != address(0)) revert RIMAssetOnlyInMode1();
-        }
-
-        userMode[user] = _mode;
-        userRIMAssetsAddress[user] = _userRIMAssetsAddress;
-        emit UserModeSetting(user, _mode, _userRIMAssetsAddress);
+        LendingManagerModeLib.userModeSetting(
+            licensedAssets,
+            assetsDepositAndLend,
+            assetsSerialNumber,
+            userMode,
+            userRIMAssetsAddress,
+            oracleAddr,
+            _mode,
+            _userRIMAssetsAddress,
+            user
+        );
     }
 
     //----------------------------- Internal Helpers ------------------------------------
     function _loadAssetSnapshots() internal view returns (LendingManagerLib.AssetSnapshot[] memory s) {
-        uint len = assetsSerialNumber.length;
-        s = new LendingManagerLib.AssetSnapshot[](len);
-        for (uint i = 0; i < len; i++) {
-            address asset = assetsSerialNumber[i];
-            licensedAsset storage la = licensedAssets[asset];
-            s[i].asset = asset;
-            s[i].depositCoin = assetsDepositAndLend[asset][0];
-            s[i].loanCoin = assetsDepositAndLend[asset][1];
-            s[i].maximumLTV = la.maximumLTV;
-            s[i].homogeneousModeLTV = la.homogeneousModeLTV;
-            s[i].liquidationPenalty = la.liquidationPenalty;
-            s[i].maxLendingAmountInRIM = la.maxLendingAmountInRIM;
-            s[i].lendingModeNum = la.lendingModeNum;
-        }
+        return LendingManagerSnapshotLib.loadAssetSnapshots(licensedAssets, assetsDepositAndLend, assetsSerialNumber);
     }
 
     function _requireLicensed(address tokenAddr) internal view {
@@ -456,50 +363,50 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     //----------------------------- View Function------------------------------------
-    function assetsBaseInfo(address token) public view returns(uint maximumLTV,
+    function assetsBaseInfo(address token) external view returns(uint maximumLTV,
                                                                uint liquidationPenalty,
                                                                uint maxLendingAmountInRIM,
                                                                uint bestLendingRatio,
                                                                uint lendingModeNum,
                                                                uint homogeneousModeLTV,
                                                                uint bestDepositInterestRate){
-        licensedAsset storage a = licensedAssets[token];
+        LendingManagerTypes.LicensedAsset storage a = licensedAssets[token];
         return (a.maximumLTV, a.liquidationPenalty, a.maxLendingAmountInRIM,
                 a.bestLendingRatio, a.lendingModeNum, a.homogeneousModeLTV, a.bestDepositInterestRate);
     }
-    function assetsReserveFactor(address token) public view returns(uint reserveFactor){
+    function assetsReserveFactor(address token) external view returns(uint reserveFactor){
         return (licensedAssets[token].reserveFactor);
     }
 
-    function assetsTimeDependentParameter(address token) public view returns(uint latestDepositCoinValue,
+    function assetsTimeDependentParameter(address token) external view returns(uint latestDepositCoinValue,
                                                                              uint latestLendingCoinValue,
                                                                              uint latestDepositInterest,
                                                                              uint latestLendingInterest){
-        assetInfo storage a = assetInfos[token];
+        LendingManagerTypes.AssetInfo storage a = assetInfos[token];
         return (a.latestDepositCoinValue, a.latestLendingCoinValue, a.latestDepositInterest, a.latestLendingInterest);
     }
 
-    function assetsDepositAndLendAddrs(address token) public view returns(address[2] memory addrs){
+    function assetsDepositAndLendAddrs(address token) external view returns(address[2] memory addrs){
         return assetsDepositAndLend[token];
     }
 
-    function licensedAssetAmount() public view returns(uint assetLength){
+    function licensedAssetAmount() external view returns(uint assetLength){
         assetLength = assetsSerialNumber.length;
     }
 
     function _rawToNormalized(address tokenAddr, uint amountRaw) internal view returns (uint amountNorm18) {
-        amountNorm18 = amountRaw * 1 ether / (10 ** iDecimals(tokenAddr).decimals());
+        return LendingManagerLib.rawToNormalized(tokenAddr, amountRaw);
     }
 
     function _normalizedToRaw(address tokenAddr, uint amountNorm18) internal view returns (uint amountRaw) {
-        amountRaw = amountNorm18 * (10 ** iDecimals(tokenAddr).decimals()) / 1 ether;
+        return LendingManagerLib.normalizedToRaw(tokenAddr, amountNorm18);
     }
 
     function VaultTokensAmount(address tokenAddr) public view returns(uint maxAmount){
         maxAmount = _rawToNormalized(tokenAddr, IERC20(tokenAddr).balanceOf(lendingVault));
     }
 
-    function userDepositAndLendingValue(address user) public view returns(uint _amountDeposit,uint _amountLending){
+    function userDepositAndLendingValue(address user) external view returns(uint _amountDeposit,uint _amountLending){
         LendingManagerLib.AssetSnapshot[] memory s = _loadAssetSnapshots();
         return LendingManagerLib.depositAndLendingValue(s, user, userMode[user], oracleAddr);
     }
@@ -510,14 +417,14 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     function getCoinValues(address token) public view returns(uint[2] memory currentValue){
-        assetInfo storage a = assetInfos[token];
+        LendingManagerTypes.AssetInfo storage a = assetInfos[token];
         return LendingManagerLib.coinValues(
             a.latestDepositCoinValue, a.latestLendingCoinValue,
             a.latestDepositInterest, a.latestLendingInterest, a.latestTimeStamp
         );
     }
 
-    function userAssetOverview(address user) public view returns(address[] memory tokens, uint[] memory _amountDeposit, uint[] memory _amountLending){
+    function userAssetOverview(address user) external view returns(address[] memory tokens, uint[] memory _amountDeposit, uint[] memory _amountLending){
         LendingManagerLib.AssetSnapshot[] memory s = _loadAssetSnapshots();
         return LendingManagerLib.assetOverview(s, user);
     }
@@ -525,7 +432,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     //---------------------------- borrow & lend  Function----------------------------
     function _beforeUpdate(address token) internal returns(uint[2] memory latestValues){
         latestValues = getCoinValues(token);
-        assetInfo storage a = assetInfos[token];
+        LendingManagerTypes.AssetInfo storage a = assetInfos[token];
         // FR-H-02: Preserve the "fully wiped" sentinel. coinValues() returns 0
         // for wiped markets, but writing 0 back would be misread as "uninitialized"
         // on subsequent calls. Keep the sentinel so the wipe is permanent.
@@ -537,7 +444,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     function _assetsValueUpdate(address token) internal returns(uint[2] memory latestInterest){
-        assetInfo storage a = assetInfos[token];
+        LendingManagerTypes.AssetInfo storage a = assetInfos[token];
         if (a.latestTimeStamp != block.timestamp) revert NotAfterBeforeUpdate();
 
         // R2-H-01: If the market was fully wiped by _socializeBadDebt(), the
@@ -589,28 +496,16 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     ///      called AFTER burnCoin(), reading the actual userOQCAmount captures
     ///      the exact share delta including burnCoin's ±1 dust adjustments.
     function _decrementRIMDebt(address user, address token, uint /*amount*/) internal {
-        if (userMode[user] != 1 || token != riskIsolationModeAcceptAssets) {
-            return;
-        }
-        address rimAsset = userRIMAssetsAddress[user];
-        address loanCoin = assetsDepositAndLend[riskIsolationModeAcceptAssets][1];
-
-        // Read actual post-burn shares from the canonical source.
-        uint currentShares = iDepositOrLoanCoin(loanCoin).userOQCAmount(user);
-        uint oldShares = userRIMAssetsLendingNetAmount[user][token];
-
-        // Compute the real share delta burned by the loan-coin contract.
-        uint delta = oldShares > currentShares ? oldShares - currentShares : 0;
-
-        // Sync user-level counter with actual OQC state.
-        userRIMAssetsLendingNetAmount[user][token] = currentShares;
-
-        // Decrement global counter defensively.
-        if (riskIsolationModeLendingNetAmount[rimAsset] >= delta) {
-            riskIsolationModeLendingNetAmount[rimAsset] -= delta;
-        } else {
-            riskIsolationModeLendingNetAmount[rimAsset] = 0;
-        }
+        LendingManagerRIMLib.decrementDebt(
+            assetsDepositAndLend,
+            userRIMAssetsLendingNetAmount,
+            riskIsolationModeLendingNetAmount,
+            userRIMAssetsAddress,
+            userMode,
+            riskIsolationModeAcceptAssets,
+            user,
+            token
+        );
     }
 
     function _socializeBadDebt(address user) internal {
@@ -628,7 +523,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                 {
                     uint totalDeposits = iDepositOrLoanCoin(s[i].depositCoin).totalSupply();
                     if (totalDeposits > 0) {
-                        assetInfo storage a = assetInfos[s[i].asset];
+                        LendingManagerTypes.AssetInfo storage a = assetInfos[s[i].asset];
                         uint oldValue = a.latestDepositCoinValue;
                         // FR-H-02: Also handle type(uint256).max (wiped sentinel)
                         if (oldValue == 0 || oldValue == type(uint256).max) { oldValue = 1 ether; }
@@ -665,55 +560,42 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     ///      accrual on dormant borrowers is always reflected in the global cap check,
     ///      because totalShares * currentCoinValue = true interest-inclusive debt.
     function _updateRIMAccounting(address user, address tokenAddr, uint amountNormalize, bool isLend) internal {
-        address rimAsset = userRIMAssetsAddress[user];
-        uint maxRIM = licensedAssets[rimAsset].maxLendingAmountInRIM;
-        if (!isLend) {
-            if (maxRIM == 0) revert WrongRIMToken();
-        }
-        if (tokenAddr != riskIsolationModeAcceptAssets) revert WrongRIMToken();
-
-        address loanCoin = assetsDepositAndLend[riskIsolationModeAcceptAssets][1];
-
-        // Read the user's current raw OQC shares (interest-independent).
-        uint currentShares = iDepositOrLoanCoin(loanCoin).userOQCAmount(user);
-
-        // Convert the normalized borrow/repay amount to share units using
-        // the current lending coin value. getCoinValues() extrapolates to
-        // block.timestamp, so the result is the same before/after _beforeUpdate.
         uint coinValue = getCoinValues(riskIsolationModeAcceptAssets)[1];
-        uint sharesDelta = amountNormalize * 1 ether / coinValue;
-
-        // Predict the user's OQC share count after the pending mint/burn.
-        uint newShares = isLend ? currentShares + sharesDelta : currentShares - sharesDelta;
-
-        // Delta-update global counter (in shares):
-        // global = global - oldUserShares + newUserShares
-        riskIsolationModeLendingNetAmount[rimAsset] = riskIsolationModeLendingNetAmount[rimAsset]
-                                                     - userRIMAssetsLendingNetAmount[user][tokenAddr]
-                                                     + newShares;
-        userRIMAssetsLendingNetAmount[user][tokenAddr] = newShares;
-
-        // Cap check: convert total shares to interest-inclusive debt value.
-        // This captures ALL accrued interest, including dormant borrowers,
-        // because totalShares * coinValue always equals the true total debt.
         if (isLend) {
-            uint totalDebtValue = riskIsolationModeLendingNetAmount[rimAsset] * coinValue / 1 ether;
-            if (totalDebtValue > maxRIM) revert RIMBorrowLimitExceeded();
+            LendingManagerRIMLib.updateBorrow(
+                licensedAssets,
+                assetsDepositAndLend,
+                userRIMAssetsLendingNetAmount,
+                riskIsolationModeLendingNetAmount,
+                userRIMAssetsAddress,
+                riskIsolationModeAcceptAssets,
+                user,
+                tokenAddr,
+                amountNormalize,
+                coinValue
+            );
+        } else {
+            LendingManagerRIMLib.updateRepayment(
+                licensedAssets,
+                assetsDepositAndLend,
+                userRIMAssetsLendingNetAmount,
+                riskIsolationModeLendingNetAmount,
+                userRIMAssetsAddress,
+                riskIsolationModeAcceptAssets,
+                user,
+                tokenAddr,
+                amountNormalize,
+                coinValue
+            );
         }
     }
 
     function _checkDepositMode(address tokenAddr, address user) internal view {
-        if(userMode[user] == 0){
-            if (licensedAssets[tokenAddr].maxLendingAmountInRIM != 0) revert WrongRIMToken();
-        }else if(userMode[user] == 1){
-            if (tokenAddr != userRIMAssetsAddress[user]) revert WrongRIMToken();
-        }else {
-            if (licensedAssets[tokenAddr].lendingModeNum != userMode[user]) revert WrongHomogeneousMode();
-        }
+        LendingManagerRIMLib.checkDepositMode(licensedAssets, tokenAddr, userMode[user], userRIMAssetsAddress[user]);
     }
 
     //  Assets Deposit
-    function assetsDeposit(address tokenAddr, uint amount, address user) public whenNotPaused nonReentrant {
+    function assetsDeposit(address tokenAddr, uint amount, address user) external whenNotPaused nonReentrant {
         _requireInterface(user);
 
         _requireNonZeroAmount(amount);
@@ -732,7 +614,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     // Withdrawal of deposits
-    function withdrawDeposit(address tokenAddr, uint amount, address user) public whenNotPaused nonReentrant {
+    function withdrawDeposit(address tokenAddr, uint amount, address user) external whenNotPaused nonReentrant {
         _requireInterface(user);
         uint amountNormalize = _rawToNormalized(tokenAddr, amount);
         uint amountTokenMax = iDepositOrLoanCoin(assetsDepositAndLend[tokenAddr][0]).balanceOf(user);
@@ -759,7 +641,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     // lend Asset
-    function lendAsset(address tokenAddr, uint amount, address user) public whenNotPaused nonReentrant {
+    function lendAsset(address tokenAddr, uint amount, address user) external whenNotPaused nonReentrant {
         _requireInterface(user);
         uint amountNormalize = _rawToNormalized(tokenAddr, amount);
 
@@ -785,7 +667,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     }
 
     // repay Loan
-    function repayLoan(address tokenAddr,uint amount, address user) public whenNotPaused nonReentrant {
+    function repayLoan(address tokenAddr,uint amount, address user) external whenNotPaused nonReentrant {
         _requireInterface(user);
         uint amountTokenMax = iDepositOrLoanCoin(assetsDepositAndLend[tokenAddr][1]).balanceOf(user);
 
@@ -818,7 +700,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
                               address borrowTokenAddr,
                               uint    borrowAmount,
                               address flashLoanUserContractAddr,
-                              address user) public whenNotPaused nonReentrant {
+                              address user) external whenNotPaused nonReentrant {
         _requireInterface(user);
         _requireNonZeroAmount(borrowAmount);
         _requireLicensed(useTokenAddr);
@@ -860,7 +742,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         _requireNonZeroAmount(liquidateAmountNormalize);
         if (msg.sender == user) revert SelfLiquidation();
         if (licensedAssets[liquidateToken].assetAddr != liquidateToken) revert DebtTokenNotLicensed();
-        licensedAsset storage depAsset = licensedAssets[depositToken];
+        LendingManagerTypes.LicensedAsset storage depAsset = licensedAssets[depositToken];
         if (depAsset.assetAddr != depositToken) revert CollateralTokenNotLicensed();
 
         {
@@ -869,7 +751,7 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             uint balAfter = IERC20(liquidateToken).balanceOf(lendingVault);
             liquidateAmountNormalize = _rawToNormalized(liquidateToken, balAfter - balBefore);
         }
-        require(liquidateAmountNormalize > 0,"Lending Manager: Cant Pledge 0 amount");
+        if (liquidateAmountNormalize == 0) revert ZeroAmount();
 
         uint healthFactorBefore;
         uint seizedCollateralNormalize;
@@ -896,18 +778,15 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             // M-02: enforce collateral-mode isolation on the liquidator
             uint8 liquidatorMode = userMode[msg.sender];
             if (liquidatorMode == 0) {
-                require(licensedAssets[depositToken].maxLendingAmountInRIM == 0,
-                    "Lending Manager: Liquidator mode does not permit this collateral");
+                if (licensedAssets[depositToken].maxLendingAmountInRIM != 0) revert WrongRIMToken();
             } else if (liquidatorMode == 1) {
-                require(depositToken == userRIMAssetsAddress[msg.sender],
-                    "Lending Manager: Liquidator mode does not permit this collateral");
+                if (depositToken != userRIMAssetsAddress[msg.sender]) revert WrongRIMToken();
             } else {
-                require(licensedAssets[depositToken].lendingModeNum == liquidatorMode,
-                    "Lending Manager: Liquidator mode does not permit this collateral");
+                if (licensedAssets[depositToken].lendingModeNum != liquidatorMode) revert WrongHomogeneousMode();
             }
             iDepositOrLoanCoin(assetsDepositAndLend[depositToken][0]).mintCoin(msg.sender,seizedCollateralNormalize);
         } else {
-            require(VaultTokensAmount(depositToken) >= seizedCollateralNormalize, "Lending Manager: Insufficient vault liquidity");
+            if (VaultTokensAmount(depositToken) < seizedCollateralNormalize) revert VaultInsufficient();
             iLendingVaults(lendingVault).vaultsERC20Approve(depositToken, usedAmount);
             IERC20(depositToken).safeTransferFrom(lendingVault, msg.sender, usedAmount);
         }
@@ -941,14 +820,14 @@ contract lendingManager is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     function tokenLiquidate(address user,
                             address liquidateToken,
                             uint    liquidateAmount,
-                            address depositToken) public whenNotPaused nonReentrant returns(uint usedAmount) {
+                            address depositToken) external whenNotPaused nonReentrant returns(uint usedAmount) {
         usedAmount = _tokenLiquidate(user, liquidateToken, liquidateAmount, depositToken, false);
     }
 
     function tokenLiquidateToDepositCoin(address user,
                                          address liquidateToken,
                                          uint    liquidateAmount,
-                                         address depositToken) public whenNotPaused nonReentrant returns(uint usedAmount) {
+                                         address depositToken) external whenNotPaused nonReentrant returns(uint usedAmount) {
         usedAmount = _tokenLiquidate(user, liquidateToken, liquidateAmount, depositToken, true);
     }
 
