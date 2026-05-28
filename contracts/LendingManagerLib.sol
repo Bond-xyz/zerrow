@@ -222,6 +222,14 @@ library LendingManagerLib {
         }
     }
 
+    function rawToNormalized(address tokenAddr, uint amountRaw) external view returns (uint amountNorm18) {
+        amountNorm18 = amountRaw * 1 ether / (10 ** iDecimals(tokenAddr).decimals());
+    }
+
+    function normalizedToRaw(address tokenAddr, uint amountNorm18) external view returns (uint amountRaw) {
+        amountRaw = amountNorm18 * (10 ** iDecimals(tokenAddr).decimals()) / 1 ether;
+    }
+
     function validateAssetParams(
         uint _maxLTV,
         uint _liqPenalty,
