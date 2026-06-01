@@ -8,6 +8,20 @@
 
 ---
 
+## Operational Reward Note
+
+Bond rewards are handled by the separate `bond-rewards` stack, not by Zerrow's
+legacy `rewardContract` hook. Any references in this report to reward setup,
+reward reset, or `rewardRecordMock` should be read as compatibility-hook
+behavior only.
+
+The deployed hook is not a claim contract, must not be funded, and must not be
+used as canonical reward accounting. Production reward accrual, Merkle/URD root
+publication, proof generation, claims, and reconciliation are owned by
+`bond-rewards`.
+
+---
+
 ## Scope
 
 | Contract | Lines | Description |
